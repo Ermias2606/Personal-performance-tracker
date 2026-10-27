@@ -1,0 +1,6 @@
+{
+  "name": "Biqat KPI — Personal & Branch Performance Tracker",
+  "description": "Offline-first personal KPI performance tracker for setting branch annual plans, cascading annual, quarterly, and monthly personal targets, logging actual performance, and generating analytical reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

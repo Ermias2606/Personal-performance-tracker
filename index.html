@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="am">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Biqat KPI — Personal &amp; Branch Performance Tracker</title>
+    <meta name="description" content="Offline-first personal KPI performance tracker for setting branch annual plans, cascading annual, quarterly, and monthly personal targets, logging actual performance, and generating analytical reports." />
+    <meta property="og:title" content="Biqat KPI — Personal &amp; Branch Performance Tracker" />
+    <meta property="og:description" content="Offline-first personal KPI performance tracker for setting branch annual plans, cascading annual, quarterly, and monthly personal targets, logging actual performance, and generating analytical reports." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0F172A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Biqat KPI" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+Ethiopic:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+    <script>
+      window.__biqatDeferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.__biqatDeferredPrompt = e;
+        window.dispatchEvent(new Event('biqat-pwa-prompt'));
+      });
+    </script>
+  </head>
+  <body class="bg-[#F8FAFC] text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
