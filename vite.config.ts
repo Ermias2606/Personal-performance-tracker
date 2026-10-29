@@ -371,11 +371,34 @@ self.addEventListener('message', (event) => {
   };
 }
 
+function vercelSeoOriginPlugin(): Plugin {
+  return {
+    name: 'vercel-seo-origin',
+    apply: 'build',
+    transformIndexHtml(html) {
+      const rawHost =
+        process.env.VITE_SITE_URL ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+        process.env.VERCEL_URL;
+      if (!rawHost) return html;
+      const normalizedOrigin = rawHost
+        .trim()
+        .replace(/\/+$/, '')
+        .replace(/^(?!https?:\/\/)/i, 'https://');
+      return html.replaceAll(
+        'https://ais-pre-2fgzc4gaatychnna2xeffj-30057240509.europe-west2.run.app',
+        normalizedOrigin
+      );
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
     plugins: [
       react(),
       tailwindcss(),
+      vercelSeoOriginPlugin(),
       pwaDevServerPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
