@@ -3,12 +3,14 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BarChart3,
   Building2,
+  CalendarCheck2,
   CalendarRange,
   ChevronRight,
   ClipboardCheck,
   FileText,
   Globe,
   Home,
+  ListTodo,
   Lock,
   Moon,
   SlidersHorizontal,
@@ -16,16 +18,21 @@ import {
   Target,
 } from 'lucide-react';
 import {
+  ActionTaskItem,
   ActiveTab,
   ActualLogEntry,
   AppDatabasePayload,
   AppPageRoute,
+  AppraisalNarrative,
   EmployeeProfile,
   FiscalYearWorkspace,
   KpiCategoryDef,
   KpiItem,
+  MonthWorkingConfig,
   PeriodScope,
+  ProspectItem,
   SecuritySettings,
+  WeeklyCheckInSettings,
 } from './types/kpi';
 import {
   createEmptyData,
@@ -43,14 +50,18 @@ import { OverviewView } from './components/OverviewView';
 import { BranchPlanView } from './components/BranchPlanView';
 import { PersonalPlanView } from './components/PersonalPlanView';
 import { ActualsView } from './components/ActualsView';
+import { PipelineTasksView } from './components/PipelineTasksView';
 import { ReportsView } from './components/ReportsView';
 import {
   FiscalYearModal,
   LogActualModal,
   ProfileBackupModal,
 } from './components/Modals';
+import { WorkingCalendarModal } from './components/WorkingCalendarModal';
+import { WeeklyCheckInModal } from './components/WeeklyCheckInModal';
 import { PinLockScreen } from './components/PinLockScreen';
 import { BiqatBrandMark } from './components/BrandIcons';
+import { SEOHead } from './components/SEOHead';
 
 function pathnameToPage(pathname: string): AppPageRoute {
   const clean = pathname.replace(/\/+$/, '') || '/';
@@ -63,6 +74,8 @@ function pathnameToPage(pathname: string): AppPageRoute {
       return 'personal';
     case '/actuals':
       return 'actuals';
+    case '/pipeline':
+      return 'pipeline';
     case '/reports':
       return 'reports';
     case '/install':
@@ -82,6 +95,8 @@ function pageToPathname(page: AppPageRoute): string {
       return '/my-plan';
     case 'actuals':
       return '/actuals';
+    case 'pipeline':
+      return '/pipeline';
     case 'reports':
       return '/reports';
     case 'install':
@@ -100,6 +115,7 @@ export default function App() {
     typeof window !== 'undefined' ? pathnameToPage(window.location.pathname) : 'landing'
   );
   const [focusedKpiId, setFocusedKpiId] = useState<string | null>(null);
+  const [pipelineFilterKpiId, setPipelineFilterKpiId] = useState<string | null>(null);
   const [scope, setScope] = useState<PeriodScope>({ type: 'ytd' });
 
   const [logModalState, setLogModalState] = useState<{
@@ -108,6 +124,12 @@ export default function App() {
     monthIndex?: number;
   }>({ open: false });
 
+  const [workingCalendarState, setWorkingCalendarState] = useState<{
+    open: boolean;
+    monthIndex: number;
+  }>({ open: false, monthIndex: 0 });
+
+  const [isWeeklyCheckInOpen, setIsWeeklyCheckInOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isFiscalYearModalOpen, setIsFiscalYearModalOpen] = useState(false);
 
@@ -360,10 +382,204 @@ export default function App() {
   const handleUpdateWorkingDays = useCallback(
     (workingDaysPerMonth: number, elapsedWorkingDays: number) => {
       persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => {
+          const targetMonthIdx =
+            scope.type === 'month' ? scope.monthIndex : ws.activeMonthIndex;
+          const existingMonthCfg = ws.monthlyWorkingConfigs?.[targetMonthIdx];
+          const holidays = existingMonthCfg?.holidays ?? [];
+          const nextBaseWorkingDays = Math.min(31, workingDaysPerMonth + holidays.length);
+          const nextMonthlyWorkingConfigs: Record<number, MonthWorkingConfig> = {
+            ...(ws.monthlyWorkingConfigs || {}),
+            [targetMonthIdx]: {
+              baseWorkingDays: nextBaseWorkingDays,
+              elapsedWorkingDays,
+              holidays,
+            },
+          };
+
+          return {
+            ...ws,
+            workingDaysPerMonth:
+              holidays.length === 0 ? workingDaysPerMonth : ws.workingDaysPerMonth,
+            elapsedWorkingDaysInMonth:
+              targetMonthIdx === ws.activeMonthIndex
+                ? elapsedWorkingDays
+                : ws.elapsedWorkingDaysInMonth,
+            monthlyWorkingConfigs: nextMonthlyWorkingConfigs,
+          };
+        })
+      );
+    },
+    [persistUpdate, updateActiveWorkspace, scope]
+  );
+
+  const handleSaveMonthWorkingConfig = useCallback(
+    (monthIndex: number, config: MonthWorkingConfig) => {
+      persistUpdate((prev) =>
         updateActiveWorkspace(prev, (ws) => ({
           ...ws,
-          workingDaysPerMonth,
-          elapsedWorkingDaysInMonth: elapsedWorkingDays,
+          workingDaysPerMonth:
+            monthIndex === ws.activeMonthIndex
+              ? config.baseWorkingDays
+              : ws.workingDaysPerMonth,
+          elapsedWorkingDaysInMonth:
+            monthIndex === ws.activeMonthIndex
+              ? config.elapsedWorkingDays
+              : ws.elapsedWorkingDaysInMonth,
+          monthlyWorkingConfigs: {
+            ...(ws.monthlyWorkingConfigs || {}),
+            [monthIndex]: config,
+          },
+        }))
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleBatchAddLogs = useCallback(
+    (entries: Omit<ActualLogEntry, 'id' | 'createdAt'>[]) => {
+      if (entries.length === 0) return;
+      persistUpdate((prev) => {
+        const now = Date.now();
+        const stampedEntries: ActualLogEntry[] = entries.map((e, idx) => ({
+          ...e,
+          id: `log-batch-${now}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+          createdAt: now + idx,
+        }));
+        const updated = updateActiveWorkspace(prev, (ws) => ({
+          ...ws,
+          actualLogs: [...ws.actualLogs, ...stampedEntries],
+        }));
+        return {
+          ...updated,
+          checkInSettings: {
+            ...(prev.checkInSettings || {
+              reminderEnabled: true,
+              reminderDay: 'friday',
+            }),
+            lastCheckInAt: new Date().toISOString(),
+          },
+        };
+      });
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleUpdateCheckInSettings = useCallback(
+    (next: WeeklyCheckInSettings) => {
+      persistUpdate((prev) => ({
+        ...prev,
+        checkInSettings: next,
+      }));
+    },
+    [persistUpdate]
+  );
+
+  const handleSaveProspect = useCallback(
+    (item: ProspectItem) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => {
+          const list = ws.prospects || [];
+          const exists = list.some((p) => p.id === item.id);
+          const nextProspects = exists
+            ? list.map((p) => (p.id === item.id ? item : p))
+            : [item, ...list];
+          return { ...ws, prospects: nextProspects };
+        })
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleDeleteProspect = useCallback(
+    (prospectId: string) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => ({
+          ...ws,
+          prospects: (ws.prospects || []).filter((p) => p.id !== prospectId),
+        }))
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleConvertProspectToActual = useCallback(
+    (prospectId: string) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => {
+          const list = ws.prospects || [];
+          const target = list.find((p) => p.id === prospectId);
+          if (!target || target.convertedLogId) return ws;
+
+          const newLog: ActualLogEntry = {
+            id: `log-won-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            kpiId: target.kpiId,
+            monthIndex: target.monthIndex,
+            date: new Date().toISOString().slice(0, 10),
+            value: target.expectedValue,
+            note:
+              prev.profile.language === 'am'
+                ? `[ከፓይፕላይን የተቀየረ] ${target.clientName}`
+                : `[Pipeline Won] ${target.clientName}`,
+            createdAt: Date.now(),
+          };
+
+          const nextProspects = list.map((p) =>
+            p.id === prospectId
+              ? {
+                  ...p,
+                  stage: 'won' as const,
+                  probabilityPct: 100,
+                  convertedLogId: newLog.id,
+                }
+              : p
+          );
+
+          return {
+            ...ws,
+            prospects: nextProspects,
+            actualLogs: [...ws.actualLogs, newLog],
+          };
+        })
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleSaveTask = useCallback(
+    (task: ActionTaskItem) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => {
+          const list = ws.actionTasks || [];
+          const exists = list.some((t) => t.id === task.id);
+          const nextTasks = exists
+            ? list.map((t) => (t.id === task.id ? task : t))
+            : [task, ...list];
+          return { ...ws, actionTasks: nextTasks };
+        })
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleDeleteTask = useCallback(
+    (taskId: string) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => ({
+          ...ws,
+          actionTasks: (ws.actionTasks || []).filter((t) => t.id !== taskId),
+        }))
+      );
+    },
+    [persistUpdate, updateActiveWorkspace]
+  );
+
+  const handleSaveAppraisalNarrative = useCallback(
+    (narrative: AppraisalNarrative) => {
+      persistUpdate((prev) =>
+        updateActiveWorkspace(prev, (ws) => ({
+          ...ws,
+          appraisalNarrative: narrative,
         }))
       );
     },
@@ -523,12 +739,15 @@ export default function App() {
     );
   }, [db, activeFy, scope]);
 
-  const yoyComparison = useMemo(() => {
+  const priorFy = useMemo(() => {
     if (!db || !activeFy) return null;
-    const prior = db.fiscalYears.find((f) => f.id !== activeFy.id);
-    if (!prior) return null;
-    return computeYoYComparison(activeFy, prior, db.profile, scope, db.categories);
-  }, [db, activeFy, scope]);
+    return db.fiscalYears.find((f) => f.id !== activeFy.id) || null;
+  }, [db, activeFy]);
+
+  const yoyComparison = useMemo(() => {
+    if (!db || !activeFy || !priorFy) return null;
+    return computeYoYComparison(activeFy, priorFy, db.profile, scope, db.categories);
+  }, [db, activeFy, priorFy, scope]);
 
   if (!db || !activeFy || !portfolioSummary) {
     return (
@@ -579,8 +798,18 @@ export default function App() {
     branch: UI_TEXT.nav.branch[lang],
     personal: UI_TEXT.nav.personal[lang],
     actuals: UI_TEXT.nav.actuals[lang],
+    pipeline: UI_TEXT.pipelineBtn[lang],
     reports: UI_TEXT.nav.reports[lang],
     install: lang === 'am' ? 'አፕ ጫን (Install)' : 'Install App',
+  };
+
+  const activePipelineCount =
+    (activeFy.prospects || []).filter((p) => p.stage !== 'won' && p.stage !== 'lost')
+      .length + (activeFy.actionTasks || []).filter((t) => !t.completed).length;
+
+  const effectiveCheckInSettings: WeeklyCheckInSettings = db.checkInSettings || {
+    reminderEnabled: true,
+    reminderDay: 'friday',
   };
 
   const mobileNavIcons: Record<ActiveTab, React.ReactNode> = {
@@ -594,6 +823,12 @@ export default function App() {
   if (currentPage === 'landing') {
     return (
       <>
+        <SEOHead
+          currentPage={currentPage}
+          lang={lang}
+          theme={db.profile.theme}
+          fiscalYearLabel={db.profile.fiscalYearLabel}
+        />
         <LandingPage
           profile={db.profile}
           activeFy={activeFy}
@@ -612,6 +847,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 pb-20 md:pb-8 transition-colors flex flex-col">
+      <SEOHead
+        currentPage={currentPage}
+        lang={lang}
+        theme={db.profile.theme}
+        fiscalYearLabel={db.profile.fiscalYearLabel}
+      />
       {/* Strict 3-Zone Top Navigation Bar */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
         <div className="mx-auto flex h-12 md:h-14 max-w-7xl items-center justify-between gap-8 px-4 sm:px-6 lg:px-8">
@@ -694,6 +935,38 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Prospect Pipeline & Action Tasks Workspace Route */}
+            <button
+              type="button"
+              onClick={() => {
+                setPipelineFilterKpiId(null);
+                handleNavigatePage('pipeline');
+              }}
+              className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                currentPage === 'pipeline'
+                  ? 'border-blue-600 dark:border-blue-500 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300'
+                  : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <ListTodo className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span>{UI_TEXT.pipelineBtn[lang]}</span>
+              {activePipelineCount > 0 && (
+                <span className="font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                  · {activePipelineCount}
+                </span>
+              )}
+            </button>
+
+            {/* Weekly Check-In Batch Logger Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsWeeklyCheckInOpen(true)}
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <CalendarCheck2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>{UI_TEXT.checkInBtn[lang]}</span>
+            </button>
+
             {/* Quick Multi-Fiscal-Year Switcher + Archive/Rollover Modal Trigger */}
             {db.fiscalYears.length > 1 ? (
               <div className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-0.5">
@@ -813,16 +1086,24 @@ export default function App() {
             {currentPage === 'overview' && (
               <OverviewView
                 profile={db.profile}
+                activeFy={activeFy}
                 kpis={activeFy.kpis}
                 logs={activeFy.actualLogs}
                 categories={db.categories}
                 summary={portfolioSummary}
                 yoyComparison={yoyComparison}
-                workingDaysPerMonth={activeFy.workingDaysPerMonth}
-                elapsedWorkingDays={activeFy.elapsedWorkingDaysInMonth}
+                checkInSettings={effectiveCheckInSettings}
                 scope={scope}
                 onChangeScope={setScope}
                 onUpdateWorkingDays={handleUpdateWorkingDays}
+                onOpenWorkingCalendar={(monthIdx) =>
+                  setWorkingCalendarState({ open: true, monthIndex: monthIdx })
+                }
+                onOpenWeeklyCheckIn={() => setIsWeeklyCheckInOpen(true)}
+                onOpenPipeline={(kpiId) => {
+                  setPipelineFilterKpiId(kpiId || null);
+                  handleNavigatePage('pipeline');
+                }}
                 onNavigateTab={(t) => handleNavigateTab(t)}
                 onQuickLogForKpi={(kpiId, monthIdx) =>
                   setLogModalState({
@@ -842,6 +1123,8 @@ export default function App() {
             {currentPage === 'branch' && (
               <BranchPlanView
                 profile={db.profile}
+                activeFy={activeFy}
+                priorFy={priorFy}
                 kpis={activeFy.kpis}
                 categories={db.categories}
                 onSaveKpi={handleSaveKpi}
@@ -856,10 +1139,16 @@ export default function App() {
             {currentPage === 'personal' && (
               <PersonalPlanView
                 profile={db.profile}
+                activeFy={activeFy}
+                priorFy={priorFy}
                 kpis={activeFy.kpis}
                 categories={db.categories}
                 focusedKpiId={focusedKpiId}
                 onSaveKpi={handleSaveKpi}
+                onUpdateKpis={handleUpdateKpis}
+                onOpenWorkingCalendar={(monthIdx) =>
+                  setWorkingCalendarState({ open: true, monthIndex: monthIdx })
+                }
                 onNavigateTab={(t) => handleNavigateTab(t)}
               />
             )}
@@ -867,15 +1156,37 @@ export default function App() {
             {currentPage === 'actuals' && (
               <ActualsView
                 profile={db.profile}
+                activeFy={activeFy}
+                priorFy={priorFy}
                 kpis={activeFy.kpis}
                 categories={db.categories}
                 logs={activeFy.actualLogs}
+                onSaveKpi={handleSaveKpi}
+                onUpdateKpis={handleUpdateKpis}
                 onSetMonthlyActualTotal={handleSetMonthlyActualTotal}
                 onClearMonthlyActual={handleClearMonthlyActual}
                 onDeleteLog={handleDeleteLog}
                 onOpenLogModal={(kpiId, monthIndex) =>
                   setLogModalState({ open: true, kpiId, monthIndex })
                 }
+                onNavigateTab={handleNavigateTab}
+              />
+            )}
+
+            {currentPage === 'pipeline' && (
+              <PipelineTasksView
+                profile={db.profile}
+                kpis={activeFy.kpis}
+                logs={activeFy.actualLogs}
+                categories={db.categories}
+                prospects={activeFy.prospects || []}
+                actionTasks={activeFy.actionTasks || []}
+                initialKpiId={pipelineFilterKpiId}
+                onSaveProspect={handleSaveProspect}
+                onDeleteProspect={handleDeleteProspect}
+                onConvertProspectToActual={handleConvertProspectToActual}
+                onSaveTask={handleSaveTask}
+                onDeleteTask={handleDeleteTask}
               />
             )}
 
@@ -888,6 +1199,10 @@ export default function App() {
                 summary={portfolioSummary}
                 scope={scope}
                 onChangeScope={setScope}
+                onSaveAppraisalNarrative={handleSaveAppraisalNarrative}
+                onOpenWorkingCalendar={(monthIdx) =>
+                  setWorkingCalendarState({ open: true, monthIndex: monthIdx })
+                }
               />
             )}
 
@@ -931,6 +1246,16 @@ export default function App() {
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               {UI_TEXT.nav.overview[lang]}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPipelineFilterKpiId(null);
+                handleNavigatePage('pipeline');
+              }}
+              className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              {UI_TEXT.pipelineBtn[lang]}
             </button>
             <button
               type="button"
@@ -986,11 +1311,35 @@ export default function App() {
       <LogActualModal
         isOpen={logModalState.open}
         profile={db.profile}
+        activeFy={activeFy}
         kpis={activeFy.kpis}
+        logs={activeFy.actualLogs}
         initialKpiId={logModalState.kpiId}
         initialMonthIndex={logModalState.monthIndex}
         onClose={() => setLogModalState({ open: false })}
         onAddLog={handleAddLog}
+        onSaveKpi={handleSaveKpi}
+      />
+
+      <WorkingCalendarModal
+        isOpen={workingCalendarState.open}
+        profile={db.profile}
+        activeFy={activeFy}
+        initialMonthIndex={workingCalendarState.monthIndex}
+        onClose={() => setWorkingCalendarState((prev) => ({ ...prev, open: false }))}
+        onSaveMonthWorkingConfig={handleSaveMonthWorkingConfig}
+      />
+
+      <WeeklyCheckInModal
+        isOpen={isWeeklyCheckInOpen}
+        profile={db.profile}
+        activeFy={activeFy}
+        kpis={activeFy.kpis}
+        logs={activeFy.actualLogs}
+        checkInSettings={effectiveCheckInSettings}
+        onClose={() => setIsWeeklyCheckInOpen(false)}
+        onBatchAddLogs={handleBatchAddLogs}
+        onUpdateCheckInSettings={handleUpdateCheckInSettings}
       />
 
       <ProfileBackupModal

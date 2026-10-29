@@ -1,21 +1,60 @@
 import {
   ActualLogEntry,
+  AppraisalNarrative,
   EmployeeProfile,
+  FiscalCalendarType,
   FiscalYearWorkspace,
   KpiCategory,
   KpiCategoryDef,
   KpiItem,
   Language,
   PeriodScope,
+  ProspectItem,
+  QuarterKey,
+  WeeklyCheckInSettings,
 } from '../types/kpi';
 import {
+  formatEthiopianDate,
+  getEffectiveMonthWorkingConfig,
+} from './ethiopianCalendar';
+import {
   DEFAULT_KPI_CATEGORIES,
+  formatKpiValue,
+  getCategoryLabel,
   getFiscalMonths,
   getQuarterLabel,
   QUARTER_MONTH_INDICES,
+  QUARTERS,
 } from './i18n';
 
 export type PerformanceStatus = 'exceptional' | 'on_track' | 'at_risk' | 'critical' | 'no_target';
+
+export type MomTrendDirection = 'up' | 'down' | 'flat';
+
+export interface KpiMomTrend {
+  hasComparison: boolean;
+  direction: MomTrendDirection;
+  currMonthIndex: number;
+  prevMonthIndex: number;
+  currMonthShort: string;
+  prevMonthShort: string;
+  currActual: number;
+  prevActual: number;
+  currAchvPct: number;
+  prevAchvPct: number;
+  achvDeltaPts: number; // Positive means performance improved vs previous month
+  actualPctChange: number | null;
+}
+
+export interface PortfolioMomTrend {
+  hasComparison: boolean;
+  direction: MomTrendDirection;
+  currMonthShort: string;
+  prevMonthShort: string;
+  currScorePct: number;
+  prevScorePct: number;
+  scoreDeltaPts: number;
+}
 
 export interface KpiEvaluatedRow {
   kpi: KpiItem;
@@ -30,6 +69,7 @@ export interface KpiEvaluatedRow {
   weightedScore: number;
   maxWeight: number;
   status: PerformanceStatus;
+  momTrend: KpiMomTrend;
   annualActualYtd: number;
   annualAchievementPct: number;
   annualRemainingGap: number;
@@ -48,6 +88,7 @@ export interface PortfolioSummary {
     labelEn: string;
     status: PerformanceStatus;
   };
+  portfolioMomTrend: PortfolioMomTrend;
   exceedingCount: number;
   onTrackCount: number;
   atRiskCount: number;
@@ -256,6 +297,30 @@ export function evaluatePortfolio(
   const ytdIndices = getMonthIndicesForScope({ type: 'ytd' }, profile.activeMonthIndex);
   const allYearIndices = Array.from({ length: 12 }, (_, i) => i);
   const remainingMonthsCount = Math.max(0, 12 - (profile.activeMonthIndex + 1));
+  const fiscalMonths = getFiscalMonths(profile.calendarType);
+
+  // Determine the reference month for Month-over-Month (MoM) trend comparison
+  let refMonthIdx = profile.activeMonthIndex;
+  if (scope.type === 'month') {
+    refMonthIdx = scope.monthIndex;
+  } else if (scope.type === 'quarter') {
+    const qIndices = QUARTER_MONTH_INDICES[scope.quarter];
+    const populatedInQuarter = qIndices.filter((mIdx) =>
+      logs.some((l) => l.monthIndex === mIdx)
+    );
+    refMonthIdx =
+      populatedInQuarter.length > 0
+        ? populatedInQuarter[populatedInQuarter.length - 1]
+        : qIndices[qIndices.length - 1];
+  }
+  refMonthIdx = Math.max(0, Math.min(11, refMonthIdx));
+  const prevMonthIdx = Math.max(0, refMonthIdx - 1);
+  const currMonthMeta = fiscalMonths[refMonthIdx] || fiscalMonths[0];
+  const prevMonthMeta = fiscalMonths[prevMonthIdx] || fiscalMonths[0];
+  const currMonthShort =
+    profile.language === 'am' ? currMonthMeta.shortAm : currMonthMeta.shortEn;
+  const prevMonthShort =
+    profile.language === 'am' ? prevMonthMeta.shortAm : prevMonthMeta.shortEn;
 
   const rows: KpiEvaluatedRow[] = kpis.map((kpi) => {
     const periodTarget = computeTargetForScope(kpi, scope, profile.activeMonthIndex);
@@ -273,6 +338,55 @@ export function evaluatePortfolio(
       kpi.direction === 'higher_better' ? periodActual - periodTarget : periodTarget - periodActual;
 
     const status = classifyStatus(achievementPct, periodTarget);
+
+    // Month-over-Month (MoM) comparison between refMonthIdx and prevMonthIdx
+    const currMTarget = kpi.monthlyTargets[refMonthIdx] ?? 0;
+    const prevMTarget = kpi.monthlyTargets[prevMonthIdx] ?? 0;
+    const currMInfo = getKpiMonthActualInfo(kpi.id, refMonthIdx, logs);
+    const prevMInfo = getKpiMonthActualInfo(kpi.id, prevMonthIdx, logs);
+    const hasMomComparison =
+      refMonthIdx > 0 && currMInfo.hasData && prevMInfo.hasData;
+
+    const currMAchvPct = computeAchievementPct(
+      kpi,
+      currMTarget,
+      currMInfo.value,
+      currMInfo.hasData
+    );
+    const prevMAchvPct = computeAchievementPct(
+      kpi,
+      prevMTarget,
+      prevMInfo.value,
+      prevMInfo.hasData
+    );
+    const achvDeltaPts = hasMomComparison ? currMAchvPct - prevMAchvPct : 0;
+    const actualPctChange =
+      hasMomComparison && prevMInfo.value > 0
+        ? ((currMInfo.value - prevMInfo.value) / prevMInfo.value) * 100
+        : null;
+
+    const momDirection: MomTrendDirection = !hasMomComparison
+      ? 'flat'
+      : Math.abs(achvDeltaPts) < 0.25
+        ? 'flat'
+        : achvDeltaPts > 0
+          ? 'up'
+          : 'down';
+
+    const momTrend: KpiMomTrend = {
+      hasComparison: hasMomComparison,
+      direction: momDirection,
+      currMonthIndex: refMonthIdx,
+      prevMonthIndex: prevMonthIdx,
+      currMonthShort,
+      prevMonthShort,
+      currActual: currMInfo.value,
+      prevActual: prevMInfo.value,
+      currAchvPct: currMAchvPct,
+      prevAchvPct: prevMAchvPct,
+      achvDeltaPts,
+      actualPctChange,
+    };
 
     const { actual: annualActualAll, hasData: hasAnyAnnualData } = computeActualForIndices(
       kpi,
@@ -326,6 +440,7 @@ export function evaluatePortfolio(
       weightedScore,
       maxWeight: kpi.weight,
       status,
+      momTrend,
       annualActualYtd: annualActualAll,
       annualAchievementPct,
       annualRemainingGap,
@@ -348,7 +463,6 @@ export function evaluatePortfolio(
   const atRiskCount = rows.filter((r) => r.status === 'at_risk').length;
   const criticalCount = rows.filter((r) => r.status === 'critical').length;
 
-  const fiscalMonths = getFiscalMonths(profile.calendarType);
   const monthlyCompositeTrend = fiscalMonths.map((m) => {
     let monthWeightActive = 0;
     let monthPoints = 0;
@@ -375,6 +489,29 @@ export function evaluatePortfolio(
       hasData: monthHasAnyData,
     };
   });
+
+  const currComposite = monthlyCompositeTrend[refMonthIdx];
+  const prevComposite = monthlyCompositeTrend[prevMonthIdx];
+  const hasPortfolioMom =
+    refMonthIdx > 0 && Boolean(currComposite?.hasData && prevComposite?.hasData);
+  const portfolioDelta = hasPortfolioMom
+    ? currComposite.weightedActualScorePct - prevComposite.weightedActualScorePct
+    : 0;
+  const portfolioMomTrend: PortfolioMomTrend = {
+    hasComparison: hasPortfolioMom,
+    direction: !hasPortfolioMom
+      ? 'flat'
+      : Math.abs(portfolioDelta) < 0.25
+        ? 'flat'
+        : portfolioDelta > 0
+          ? 'up'
+          : 'down',
+    currMonthShort,
+    prevMonthShort,
+    currScorePct: currComposite?.weightedActualScorePct ?? 0,
+    prevScorePct: prevComposite?.weightedActualScorePct ?? 0,
+    scoreDeltaPts: portfolioDelta,
+  };
 
   // Collect all configured category IDs plus any ad-hoc category IDs present on KPIs
   const orderedCatIds = Array.from(
@@ -408,6 +545,7 @@ export function evaluatePortfolio(
     totalWeightedPoints,
     normalizedScorePct,
     overallGrade: getOverallGrade(normalizedScorePct),
+    portfolioMomTrend,
     exceedingCount,
     onTrackCount,
     atRiskCount,
@@ -1086,4 +1224,705 @@ export function computeCumulativeTrend(
     latestPacePct: hasAnyActualData ? calcPace(latestPlanned, latestActual) : 0,
     hasAnyActualData,
   };
+}
+
+// ============================================================================
+// Weekly Check-In & Logging Consistency Engine
+// ============================================================================
+
+export interface WeeklyConsistencySummary {
+  updatedKpiIds: string[];
+  missingKpis: KpiItem[];
+  updatedCount: number;
+  totalKpis: number;
+  streakWeeks: number;
+  referenceDateIso: string;
+  lastLoggedDateIso: string | null;
+}
+
+export function computeWeeklyConsistency(
+  kpis: KpiItem[],
+  logs: ActualLogEntry[],
+  activeMonthIndex: number,
+  _settings?: WeeklyCheckInSettings
+): WeeklyConsistencySummary {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const sortedDates = logs
+    .map((l) => l.date)
+    .filter(Boolean)
+    .sort();
+  const lastLoggedDateIso = sortedDates.length > 0 ? sortedDates[sortedDates.length - 1] : null;
+
+  // Determine the 7-day check-in window anchored on today (or active month latest week if historical)
+  const todayMs = new Date(`${todayIso}T00:00:00`).getTime();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  const recentLogs = logs.filter((l) => {
+    const t = new Date(`${l.date}T00:00:00`).getTime();
+    if (!Number.isFinite(t)) return false;
+    return todayMs - t >= -86400000 && todayMs - t <= sevenDaysMs;
+  });
+
+  // Fallback: if viewing a historical fiscal year where no logs are within 7 days of system clock,
+  // inspect logs in activeMonthIndex from days 22..31 as the latest active week
+  const effectiveWeekLogs =
+    recentLogs.length > 0
+      ? recentLogs
+      : logs.filter((l) => {
+          if (l.monthIndex !== activeMonthIndex) return false;
+          const day = Number(l.date.split('-')[2]) || 1;
+          return day >= 22;
+        });
+
+  const updatedSet = new Set(effectiveWeekLogs.map((l) => l.kpiId));
+  const missingKpis = kpis.filter((k) => !updatedSet.has(k.id));
+
+  // Compute consecutive weekly logging streak across distinct calendar weeks present in logs
+  const weekBuckets = new Set<number>();
+  for (const log of logs) {
+    const ms = new Date(`${log.date}T00:00:00`).getTime();
+    if (Number.isFinite(ms)) {
+      weekBuckets.add(Math.floor(ms / sevenDaysMs));
+    }
+  }
+  const sortedBuckets = Array.from(weekBuckets).sort((a, b) => b - a);
+  let streakWeeks = 0;
+  if (sortedBuckets.length > 0) {
+    streakWeeks = 1;
+    for (let i = 1; i < sortedBuckets.length; i++) {
+      // Allow up to 4-week monthly cadence or consecutive weekly buckets
+      if (sortedBuckets[i - 1] - sortedBuckets[i] <= 2) {
+        streakWeeks += 1;
+      } else {
+        break;
+      }
+    }
+  }
+
+  return {
+    updatedKpiIds: Array.from(updatedSet),
+    missingKpis,
+    updatedCount: updatedSet.size,
+    totalKpis: kpis.length,
+    streakWeeks,
+    referenceDateIso: todayIso,
+    lastLoggedDateIso,
+  };
+}
+
+// ============================================================================
+// Deterministic Appraisal Self-Assessment Draft Generator (100% Offline)
+// ============================================================================
+
+export function generateDeterministicAppraisalDraft(
+  summary: PortfolioSummary,
+  prospects: ProspectItem[],
+  lang: Language
+): AppraisalNarrative {
+  const strong = [...summary.rows]
+    .filter((r) => r.hasActualData && r.achievementPct >= 95)
+    .sort((a, b) => b.achievementPct - a.achievementPct);
+  const lagging = [...summary.rows]
+    .filter((r) => r.periodTarget > 0 && r.achievementPct < 90)
+    .sort((a, b) => a.achievementPct - b.achievementPct);
+
+  const activeProspects = prospects.filter(
+    (p) => p.stage !== 'won' && p.stage !== 'lost'
+  );
+
+  if (lang === 'am') {
+    const keyAchievements =
+      strong.length > 0
+        ? strong
+            .map(
+              (r) =>
+                `• ${r.kpi.name}፦ ከተያዘው ${formatKpiValue(r.periodTarget, r.kpi.unit, true)} እቅድ ውስጥ ${formatKpiValue(r.periodActual, r.kpi.unit, true)} (${r.achievementPct.toFixed(1)}%) በማከናወን ${r.weightedScore.toFixed(1)} የክብደት ነጥብ ተመዝግቧል።`
+            )
+            .join('\n')
+        : `• በ${summary.scopeLabel} አጠቃላይ ${summary.normalizedScorePct.toFixed(1)}% ክብደት ያለው ውጤት ተመዝግቧል።`;
+
+    const varianceExplanations =
+      lagging.length > 0
+        ? lagging
+            .map(
+              (r) =>
+                `• ${r.kpi.name} (${r.achievementPct.toFixed(1)}%)፦ የ${formatKpiValue(Math.abs(r.variance), r.kpi.unit, true)} ልዩነት የታየ ሲሆን፣ በቀሪ የስራ ቀናት በታለመ የደንበኛ ክትትል ለማካካስ እቅድ ተይዟል።`
+            )
+            .join('\n')
+        : '• ሁሉም ዋና ዋና የKPI መለኪያዎች ከ90% በላይ በጥሩ የአፈጻጸም ምህዋር ላይ ይገኛሉ።';
+
+    const nextPeriodCommitments = [
+      lagging[0] && lagging[0].requiredMonthlyRunRate
+        ? `• ለ${lagging[0].kpi.code} ዓመታዊ ግብ ስኬት በየወሩ በአማካይ ${formatKpiValue(lagging[0].requiredMonthlyRunRate, lagging[0].kpi.unit, true)} የማከናወን ዕለታዊ ክትትል ማድረግ።`
+        : '• በሁሉም ከፍተኛ ክብደት ባላቸው የፋይናንስ እና የደንበኛ መለኪያዎች ከ100% በላይ አፈጻጸምን ማስቀጠል።',
+      activeProspects.length > 0
+        ? `• በፓይፕላይን ውስጥ የተመዘገቡ ${activeProspects.length} ተስፋ ሰጪ ደንበኞችን (Prospects) ወደ ተጨባጭ ክንውን መቀየር።`
+        : '• በየሳምንቱ አርብ/ቅዳሜ ወጥ የሆነ የKPI ክንውን ግምገማ ማካሄድ።',
+    ].join('\n');
+
+    return {
+      keyAchievements,
+      varianceExplanations,
+      nextPeriodCommitments,
+      supervisorComments: '',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const keyAchievements =
+    strong.length > 0
+      ? strong
+          .map(
+            (r) =>
+              `• ${r.kpi.name}: Delivered ${formatKpiValue(r.periodActual, r.kpi.unit, true)} against ${formatKpiValue(r.periodTarget, r.kpi.unit, true)} target (${r.achievementPct.toFixed(1)}%), contributing ${r.weightedScore.toFixed(1)} weighted points.`
+          )
+          .join('\n')
+      : `• Achieved an overall weighted KPI score of ${summary.normalizedScorePct.toFixed(1)}% (${summary.overallGrade.labelEn}) for ${summary.scopeLabel}.`;
+
+  const varianceExplanations =
+    lagging.length > 0
+      ? lagging
+          .map(
+            (r) =>
+              `• ${r.kpi.name} (${r.achievementPct.toFixed(1)}%): Variance of ${formatKpiValue(Math.abs(r.variance), r.kpi.unit, true)} due to timing of client settlements; targeted follow-ups are underway.`
+          )
+          .join('\n')
+      : '• All active KPIs are tracking at ≥90% of target with no material negative variances.';
+
+  const nextPeriodCommitments = [
+    lagging[0] && lagging[0].requiredMonthlyRunRate
+      ? `• Maintain a monthly run-rate of ${formatKpiValue(lagging[0].requiredMonthlyRunRate, lagging[0].kpi.unit, true)}/mo on ${lagging[0].kpi.code} to close the remaining annual gap.`
+      : '• Sustain ≥100% execution pace across high-weight deposit, FCY, and digital activation indicators.',
+    activeProspects.length > 0
+      ? `• Convert ${activeProspects.length} active pipeline prospects currently tracked in the follow-up queue.`
+      : '• Complete weekly Friday/Saturday KPI check-ins to monitor daily floor run-rates.',
+  ].join('\n');
+
+  return {
+    keyAchievements,
+    varianceExplanations,
+    nextPeriodCommitments,
+    supervisorComments: '',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// Auto Up-To-Date (As-Of Date) Pro-Rated Plan & Full Annual Progress Engine
+// ============================================================================
+
+export interface PeriodCellBreakdown {
+  plan: number;
+  actual: number;
+  hasData: boolean;
+  achvPct: number;
+}
+
+export interface UpToDateAnnualKpiRow {
+  kpi: KpiItem;
+  upToDatePlan: number;
+  upToDateActual: number;
+  hasUpToDateData: boolean;
+  upToDateVariance: number;
+  upToDateAchvPct: number;
+  upToDatePoints: number;
+  upToDateStatus: PerformanceStatus;
+  annualPlan: number;
+  annualActual: number;
+  hasAnnualData: boolean;
+  annualCompletionPct: number;
+  annualPointsEarnedSoFar: number;
+  annualScheduleDeltaPct: number;
+  annualRemainingGap: number;
+  pipelineWeightedValue: number;
+  projectedYearEndActual: number;
+  projectedAnnualAchvPct: number;
+  projectedPoints: number;
+  monthlyBreakdown: (PeriodCellBreakdown & { monthIndex: number })[];
+  quarterlyBreakdown: Record<QuarterKey, PeriodCellBreakdown>;
+}
+
+export interface CategoryDualBreakdown {
+  category: KpiCategory;
+  kpiCount: number;
+  weightSum: number;
+  upToDateEarnedPoints: number;
+  upToDateAchvPct: number;
+  annualEarnedPoints: number;
+  annualCompletionPct: number;
+  projectedEarnedPoints: number;
+}
+
+export interface UpToDateAnnualReport {
+  asOfDateIso: string;
+  asOfMonthIndex: number;
+  asOfMonthLabelAm: string;
+  asOfMonthLabelEn: string;
+  elapsedWorkingDaysInMonth: number;
+  netWorkingDaysInMonth: number;
+  holidayDeductedCount: number;
+  monthElapsedPct: number;
+  fiscalYearElapsedPct: number;
+  totalWeight: number;
+  upToDateWeightedPoints: number;
+  upToDateScorePct: number;
+  upToDateGrade: PortfolioSummary['overallGrade'];
+  annualCompletionScorePct: number;
+  annualWeightedPointsSoFar: number;
+  annualScheduleDeltaPts: number;
+  projectedYearEndScorePct: number;
+  projectedYearEndPoints: number;
+  projectedYearEndGrade: PortfolioSummary['overallGrade'];
+  exceedingUpToDateCount: number;
+  attentionUpToDateCount: number;
+  rows: UpToDateAnnualKpiRow[];
+  categoryBreakdowns: CategoryDualBreakdown[];
+}
+
+export function mapGregorianMonthToFiscalIndex(
+  gregorianMonth1Based: number,
+  calendarType: FiscalCalendarType
+): number {
+  const gm = Math.max(1, Math.min(12, gregorianMonth1Based));
+  if (calendarType === 'july_june') {
+    return gm >= 7 ? gm - 7 : gm + 5;
+  }
+  return gm - 1;
+}
+
+function countMonSatDaysInRange(year: number, month1Based: number, endDayInclusive: number): number {
+  const daysInMonth = new Date(year, month1Based, 0).getDate();
+  const limit = Math.max(0, Math.min(daysInMonth, endDayInclusive));
+  let count = 0;
+  for (let d = 1; d <= limit; d++) {
+    const dow = new Date(year, month1Based - 1, d).getDay();
+    if (dow !== 0) count += 1; // Monday (1) .. Saturday (6)
+  }
+  return count;
+}
+
+export function computeUpToDateAndAnnualReport(
+  fy: FiscalYearWorkspace,
+  profile: EmployeeProfile,
+  categories: KpiCategoryDef[] = DEFAULT_KPI_CATEGORIES,
+  asOfDateIsoInput?: string
+): UpToDateAnnualReport {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const safeIso =
+    asOfDateIsoInput && /^\d{4}-\d{2}-\d{2}$/.test(asOfDateIsoInput)
+      ? asOfDateIsoInput
+      : todayIso;
+
+  const [rawGy, rawGm, rawGd] = safeIso.split('-').map(Number);
+  const gy = Number.isFinite(rawGy) ? rawGy : new Date().getFullYear();
+  const gm = Number.isFinite(rawGm) && rawGm >= 1 && rawGm <= 12 ? rawGm : 10;
+  const daysInGregMonth = new Date(gy, gm, 0).getDate();
+  const gd = Number.isFinite(rawGd) ? Math.max(1, Math.min(daysInGregMonth, rawGd)) : 15;
+
+  const calendarMonthIdx = mapGregorianMonthToFiscalIndex(gm, fy.calendarType);
+  // Check whether logs exist around the calendar date or if this is an archived historical year
+  const asOfMonthIndex = Math.max(0, Math.min(11, calendarMonthIdx));
+  const fiscalMonths = getFiscalMonths(fy.calendarType);
+  const monthMeta = fiscalMonths[asOfMonthIndex] || fiscalMonths[0];
+
+  const monthConfig = getEffectiveMonthWorkingConfig(fy, asOfMonthIndex);
+  const totalMonSatInCalendarMonth = countMonSatDaysInRange(gy, gm, daysInGregMonth);
+  const hasExplicitMonthOverride = Boolean(fy.monthlyWorkingConfigs?.[asOfMonthIndex]);
+  const baseWorkingDays = hasExplicitMonthOverride
+    ? monthConfig.baseWorkingDays
+    : totalMonSatInCalendarMonth || fy.workingDaysPerMonth || 26;
+
+  const holidaysInMonth = monthConfig.holidays;
+  const netWorkingDaysInMonth = Math.max(1, baseWorkingDays - holidaysInMonth.length);
+
+  // Elapsed working days auto-calculated up to `gd` (deducting holidays occurring on or before `gd`)
+  const rawMonSatElapsed = countMonSatDaysInRange(gy, gm, gd);
+  const holidaysElapsed = holidaysInMonth.filter((h) => {
+    const hParts = h.date.split('-').map(Number);
+    if (hParts[1] === gm) {
+      return (hParts[2] || 1) <= gd;
+    }
+    return true;
+  }).length;
+
+  const scaleFactor =
+    totalMonSatInCalendarMonth > 0 ? baseWorkingDays / totalMonSatInCalendarMonth : 1;
+  const computedElapsedWorkingDays = Math.max(
+    0,
+    Math.min(
+      netWorkingDaysInMonth,
+      Math.round(rawMonSatElapsed * scaleFactor) - holidaysElapsed
+    )
+  );
+
+  const monthElapsedFraction =
+    netWorkingDaysInMonth > 0 ? computedElapsedWorkingDays / netWorkingDaysInMonth : 0;
+  const monthElapsedPct = monthElapsedFraction * 100;
+  const fiscalYearElapsedFraction = Math.max(
+    0.01,
+    Math.min(1, (asOfMonthIndex + monthElapsedFraction) / 12)
+  );
+  const fiscalYearElapsedPct = fiscalYearElapsedFraction * 100;
+
+  const openProspects = (fy.prospects || []).filter(
+    (p) => p.stage !== 'won' && p.stage !== 'lost'
+  );
+
+  const rows: UpToDateAnnualKpiRow[] = fy.kpis.map((kpi) => {
+    // 1. 12-Month & Quarterly breakdowns across the entire fiscal year
+    const monthlyBreakdown = Array.from({ length: 12 }, (_, mIdx) => {
+      const mPlan = kpi.monthlyTargets[mIdx] ?? 0;
+      const mInfo = getKpiMonthActualInfo(kpi.id, mIdx, fy.actualLogs);
+      const mAchv = computeAchievementPct(kpi, mPlan, mInfo.value, mInfo.hasData);
+      return {
+        monthIndex: mIdx,
+        plan: mPlan,
+        actual: mInfo.value,
+        hasData: mInfo.hasData,
+        achvPct: mAchv,
+      };
+    });
+
+    const quarterlyBreakdown = QUARTERS.reduce(
+      (acc, q) => {
+        const qIndices = QUARTER_MONTH_INDICES[q];
+        const qPlan = kpi.quarterlyTargets[q] ?? 0;
+        const { actual: qActual, hasData: qHasData } = computeActualForIndices(
+          kpi,
+          qIndices,
+          fy.actualLogs
+        );
+        acc[q] = {
+          plan: qPlan,
+          actual: qActual,
+          hasData: qHasData,
+          achvPct: computeAchievementPct(kpi, qPlan, qActual, qHasData),
+        };
+        return acc;
+      },
+      {} as Record<QuarterKey, PeriodCellBreakdown>
+    );
+
+    // 2. Pro-Rated Up-To-Date Plan & Actual up to `asOfDateIso`
+    let upToDatePlan = 0;
+    let upToDateActual = 0;
+    let hasUpToDateData = false;
+
+    const priorIndices = Array.from({ length: asOfMonthIndex }, (_, i) => i);
+    const currentMonthTarget = kpi.monthlyTargets[asOfMonthIndex] ?? 0;
+
+    // Logs in current month filtered up to `gd` (if year matches, filter by ISO <= safeIso; if archived year, filter by day <= gd)
+    const currentMonthLogsAll = fy.actualLogs.filter(
+      (l) => l.kpiId === kpi.id && l.monthIndex === asOfMonthIndex
+    );
+    const currentMonthFilteredLogs = currentMonthLogsAll.filter((l) => {
+      if (l.isDirectOverride) return false;
+      const [ly, lm, ld] = l.date.split('-').map(Number);
+      if (ly === gy && lm === gm) {
+        return l.date <= safeIso;
+      }
+      if (lm === gm && Number.isFinite(ld)) {
+        return ld <= gd;
+      }
+      return l.date <= safeIso || ly < gy;
+    });
+    const currentMonthOverrides = currentMonthLogsAll.filter((l) => l.isDirectOverride);
+
+    if (kpi.aggregation === 'average') {
+      const activeIndices = [...priorIndices, asOfMonthIndex];
+      const targetVals = activeIndices
+        .map((idx) => kpi.monthlyTargets[idx] ?? 0)
+        .filter((v) => v > 0);
+      upToDatePlan =
+        targetVals.length > 0
+          ? targetVals.reduce((a, b) => a + b, 0) / targetVals.length
+          : currentMonthTarget;
+
+      const populatedVals: number[] = [];
+      for (const idx of priorIndices) {
+        const info = getKpiMonthActualInfo(kpi.id, idx, fy.actualLogs);
+        if (info.hasData) populatedVals.push(info.value);
+      }
+      if (currentMonthFilteredLogs.length > 0 || currentMonthOverrides.length > 0) {
+        const currVal =
+          currentMonthFilteredLogs.reduce((s, l) => s + l.value, 0) +
+          currentMonthOverrides.reduce((s, l) => s + l.value, 0);
+        populatedVals.push(currVal);
+      }
+      if (populatedVals.length > 0) {
+        hasUpToDateData = true;
+        upToDateActual =
+          populatedVals.reduce((a, b) => a + b, 0) / populatedVals.length;
+      }
+    } else {
+      const priorPlanSum = priorIndices.reduce(
+        (s, idx) => s + (kpi.monthlyTargets[idx] ?? 0),
+        0
+      );
+      upToDatePlan = priorPlanSum + currentMonthTarget * monthElapsedFraction;
+
+      let priorActualSum = 0;
+      for (const idx of priorIndices) {
+        const info = getKpiMonthActualInfo(kpi.id, idx, fy.actualLogs);
+        if (info.hasData) {
+          hasUpToDateData = true;
+          priorActualSum += info.value;
+        }
+      }
+
+      let currMonthActualToDate = currentMonthFilteredLogs.reduce(
+        (s, l) => s + (Number(l.value) || 0),
+        0
+      );
+      if (currentMonthOverrides.length > 0) {
+        const overrideSum = currentMonthOverrides.reduce(
+          (s, l) => s + (Number(l.value) || 0),
+          0
+        );
+        // If user entered a direct monthly total override without dated daily logs, pro-rate or include if past month-end
+        currMonthActualToDate +=
+          currentMonthFilteredLogs.length > 0
+            ? overrideSum
+            : overrideSum * (gd >= daysInGregMonth ? 1 : monthElapsedFraction);
+      }
+
+      if (currentMonthFilteredLogs.length > 0 || currentMonthOverrides.length > 0) {
+        hasUpToDateData = true;
+      }
+      upToDateActual = priorActualSum + currMonthActualToDate;
+    }
+
+    const upToDateVariance =
+      kpi.direction === 'higher_better'
+        ? upToDateActual - upToDatePlan
+        : hasUpToDateData
+          ? upToDatePlan - upToDateActual
+          : 0;
+    const upToDateAchvPct = computeAchievementPct(
+      kpi,
+      upToDatePlan,
+      upToDateActual,
+      hasUpToDateData
+    );
+    const upToDatePoints = Math.min(upToDateAchvPct / 100, 1.2) * kpi.weight;
+    const upToDateStatus = classifyStatus(upToDateAchvPct, upToDatePlan);
+
+    // 3. Full Annual Progress & Year-End Landing Forecast
+    const annualPlan = kpi.personalAnnualTarget;
+    const allYearIndices = Array.from({ length: 12 }, (_, i) => i);
+    const { actual: fullLoggedAnnualActual, hasData: hasAnnualData } =
+      computeActualForIndices(kpi, allYearIndices, fy.actualLogs);
+
+    // Use cumulative actual up to `asOfDateIso` when inspecting an earlier cutoff date, otherwise full logged YTD
+    const annualActual =
+      safeIso < todayIso && kpi.aggregation === 'sum'
+        ? upToDateActual
+        : fullLoggedAnnualActual;
+
+    const annualCompletionPct =
+      kpi.aggregation === 'sum' && kpi.direction === 'higher_better'
+        ? annualPlan > 0
+          ? Math.max(0, (annualActual / annualPlan) * 100)
+          : 0
+        : computeAchievementPct(kpi, annualPlan, annualActual, hasAnnualData);
+
+    const annualPointsEarnedSoFar =
+      Math.min(annualCompletionPct / 100, 1.2) * kpi.weight;
+
+    const annualScheduleDeltaPct =
+      kpi.aggregation === 'sum' && kpi.direction === 'higher_better'
+        ? annualCompletionPct - fiscalYearElapsedPct
+        : annualCompletionPct - 100;
+
+    const annualRemainingGap =
+      kpi.aggregation === 'sum' && kpi.direction === 'higher_better'
+        ? Math.max(0, annualPlan - annualActual)
+        : 0;
+
+    const pipelineWeightedValue = openProspects
+      .filter((p) => p.kpiId === kpi.id)
+      .reduce((s, p) => s + (p.expectedValue * p.probabilityPct) / 100, 0);
+
+    let projectedYearEndActual = annualActual;
+    if (kpi.aggregation === 'sum') {
+      const runRateProjected =
+        fiscalYearElapsedFraction > 0
+          ? upToDateActual / fiscalYearElapsedFraction
+          : annualActual;
+      // Blend linear velocity with committed weighted pipeline floor
+      projectedYearEndActual = Math.max(
+        runRateProjected,
+        annualActual + pipelineWeightedValue
+      );
+    } else {
+      projectedYearEndActual = hasUpToDateData ? upToDateActual : annualActual;
+    }
+
+    const projectedAnnualAchvPct = computeAchievementPct(
+      kpi,
+      annualPlan,
+      projectedYearEndActual,
+      hasUpToDateData || hasAnnualData
+    );
+    const projectedPoints =
+      Math.min(projectedAnnualAchvPct / 100, 1.2) * kpi.weight;
+
+    return {
+      kpi,
+      upToDatePlan,
+      upToDateActual,
+      hasUpToDateData,
+      upToDateVariance,
+      upToDateAchvPct,
+      upToDatePoints,
+      upToDateStatus,
+      annualPlan,
+      annualActual,
+      hasAnnualData,
+      annualCompletionPct,
+      annualPointsEarnedSoFar,
+      annualScheduleDeltaPct,
+      annualRemainingGap,
+      pipelineWeightedValue,
+      projectedYearEndActual,
+      projectedAnnualAchvPct,
+      projectedPoints,
+      monthlyBreakdown,
+      quarterlyBreakdown,
+    };
+  });
+
+  const totalWeight = fy.kpis.reduce((s, k) => s + k.weight, 0);
+  const activeUtdWeight = rows.reduce(
+    (s, r) => (r.upToDatePlan > 0 ? s + r.kpi.weight : s),
+    0
+  );
+  const activeAnnualWeight = rows.reduce(
+    (s, r) => (r.annualPlan > 0 ? s + r.kpi.weight : s),
+    0
+  );
+
+  const upToDateWeightedPoints = rows.reduce((s, r) => s + r.upToDatePoints, 0);
+  const upToDateScorePct =
+    activeUtdWeight > 0 ? (upToDateWeightedPoints / activeUtdWeight) * 100 : 0;
+
+  const annualWeightedPointsSoFar = rows.reduce(
+    (s, r) => s + r.annualPointsEarnedSoFar,
+    0
+  );
+  const annualCompletionScorePct =
+    activeAnnualWeight > 0
+      ? (annualWeightedPointsSoFar / activeAnnualWeight) * 100
+      : 0;
+
+  const projectedYearEndPoints = rows.reduce((s, r) => s + r.projectedPoints, 0);
+  const projectedYearEndScorePct =
+    activeAnnualWeight > 0
+      ? (projectedYearEndPoints / activeAnnualWeight) * 100
+      : 0;
+
+  const exceedingUpToDateCount = rows.filter(
+    (r) => r.upToDateStatus === 'exceptional'
+  ).length;
+  const attentionUpToDateCount = rows.filter(
+    (r) => r.upToDateStatus === 'at_risk' || r.upToDateStatus === 'critical'
+  ).length;
+
+  const orderedCatIds = Array.from(
+    new Set([...categories.map((c) => c.id), ...fy.kpis.map((k) => k.category)])
+  );
+
+  const categoryBreakdowns: CategoryDualBreakdown[] = orderedCatIds
+    .map((catId) => {
+      const catRows = rows.filter((r) => r.kpi.category === catId);
+      const weightSum = catRows.reduce((s, r) => s + r.kpi.weight, 0);
+      const upToDateEarnedPoints = catRows.reduce((s, r) => s + r.upToDatePoints, 0);
+      const annualEarnedPoints = catRows.reduce(
+        (s, r) => s + r.annualPointsEarnedSoFar,
+        0
+      );
+      const projectedEarnedPoints = catRows.reduce(
+        (s, r) => s + r.projectedPoints,
+        0
+      );
+      return {
+        category: catId,
+        kpiCount: catRows.length,
+        weightSum,
+        upToDateEarnedPoints,
+        upToDateAchvPct: weightSum > 0 ? (upToDateEarnedPoints / weightSum) * 100 : 0,
+        annualEarnedPoints,
+        annualCompletionPct: weightSum > 0 ? (annualEarnedPoints / weightSum) * 100 : 0,
+        projectedEarnedPoints,
+      };
+    })
+    .filter((c) => c.kpiCount > 0);
+
+  return {
+    asOfDateIso: safeIso,
+    asOfMonthIndex,
+    asOfMonthLabelAm: monthMeta.fullAm,
+    asOfMonthLabelEn: monthMeta.fullEn,
+    elapsedWorkingDaysInMonth: computedElapsedWorkingDays,
+    netWorkingDaysInMonth,
+    holidayDeductedCount: holidaysInMonth.length,
+    monthElapsedPct,
+    fiscalYearElapsedPct,
+    totalWeight,
+    upToDateWeightedPoints,
+    upToDateScorePct,
+    upToDateGrade: getOverallGrade(upToDateScorePct),
+    annualCompletionScorePct,
+    annualWeightedPointsSoFar,
+    annualScheduleDeltaPts: annualCompletionScorePct - fiscalYearElapsedPct,
+    projectedYearEndScorePct,
+    projectedYearEndPoints,
+    projectedYearEndGrade: getOverallGrade(projectedYearEndScorePct),
+    exceedingUpToDateCount,
+    attentionUpToDateCount,
+    rows,
+    categoryBreakdowns,
+  };
+}
+
+export function buildFormattedProgressSummaryText(
+  report: UpToDateAnnualReport,
+  profile: EmployeeProfile,
+  categories: KpiCategoryDef[],
+  lang: Language
+): string {
+  const ethDate = formatEthiopianDate(report.asOfDateIso, lang);
+  if (lang === 'am') {
+    const lines = [
+      `የKPI አፈጻጸም ወቅታዊ እና ዓመታዊ ሪፖርት — ${profile.employeeName}`,
+      `${profile.branchName} · የበጀት ዓመት ${profile.fiscalYearLabel}`,
+      `እስከ ${report.asOfDateIso} (${ethDate}) · የዓመቱ ${report.fiscalYearElapsedPct.toFixed(1)}% የስራ ጊዜ አልፏል`,
+      `----------------------------------------`,
+      `• ወቅታዊ (Up-To-Date) አፈጻጸም፦ ${report.upToDateScorePct.toFixed(1)}% (ደረጃ ${report.upToDateGrade.code} — ${report.upToDateWeightedPoints.toFixed(1)}/${report.totalWeight} ነጥብ)`,
+      `• ዓመታዊ (Annual) አጠቃላይ ክንውን፦ ${report.annualCompletionScorePct.toFixed(1)}% (${report.annualScheduleDeltaPts >= 0 ? '+' : ''}${report.annualScheduleDeltaPts.toFixed(1)}% ከዓመታዊ የጊዜ ሂደት አንጻር)`,
+      `• የዓመት መጨረሻ ትንበያ (Forecast)፦ ${report.projectedYearEndScorePct.toFixed(1)}% (ደረጃ ${report.projectedYearEndGrade.code})`,
+      `----------------------------------------`,
+      ...report.rows.map(
+        (r) =>
+          `• ${r.kpi.code} ${r.kpi.name} (${getCategoryLabel(r.kpi.category, 'am', categories)})፦ ወቅታዊ ${formatKpiValue(r.upToDateActual, r.kpi.unit, true)} / ${formatKpiValue(r.upToDatePlan, r.kpi.unit, true)} (${r.upToDateAchvPct.toFixed(1)}%) | ዓመታዊ ${r.annualCompletionPct.toFixed(1)}%`
+      ),
+    ];
+    return lines.join('\n');
+  }
+
+  const lines = [
+    `KPI Up-To-Date & Annual Progress Brief — ${profile.employeeName}`,
+    `${profile.branchName} · FY ${profile.fiscalYearLabel}`,
+    `As of ${report.asOfDateIso} (${ethDate}) · ${report.fiscalYearElapsedPct.toFixed(1)}% of Fiscal Year Elapsed`,
+    `----------------------------------------`,
+    `• Up-To-Date Weighted Score: ${report.upToDateScorePct.toFixed(1)}% (Grade ${report.upToDateGrade.code} — ${report.upToDateWeightedPoints.toFixed(1)}/${report.totalWeight} pts)`,
+    `• Full Annual Completion: ${report.annualCompletionScorePct.toFixed(1)}% (${report.annualScheduleDeltaPts >= 0 ? '+' : ''}${report.annualScheduleDeltaPts.toFixed(1)} pts vs. elapsed year clock)`,
+    `• Year-End Landing Forecast: ${report.projectedYearEndScorePct.toFixed(1)}% (Projected Grade ${report.projectedYearEndGrade.code})`,
+    `----------------------------------------`,
+    ...report.rows.map(
+      (r) =>
+        `• ${r.kpi.code} ${r.kpi.name} (${getCategoryLabel(r.kpi.category, 'en', categories)}): UTD ${formatKpiValue(r.upToDateActual, r.kpi.unit, true)} / ${formatKpiValue(r.upToDatePlan, r.kpi.unit, true)} (${r.upToDateAchvPct.toFixed(1)}%) | Annual ${r.annualCompletionPct.toFixed(1)}%`
+    ),
+  ];
+  return lines.join('\n');
 }

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /overview
+Allow: /branch-plan
+Allow: /my-plan
+Allow: /actuals
+Allow: /pipeline
+Allow: /reports
+Allow: /install

@@ -131,6 +131,58 @@ export const InstallAppDeviceIcon: React.FC<IconProps> = ({ className = 'h-7 w-7
   </svg>
 );
 
+export const PipelineFunnelIcon: React.FC<IconProps> = ({ className = 'h-7 w-7' }) => (
+  <svg viewBox="0 0 36 36" fill="none" className={className} aria-hidden="true">
+    <path
+      d="M5 8H31L22.5 18.5V27.5L13.5 30.5V18.5L5 8Z"
+      className="fill-blue-600/12 stroke-slate-700 dark:stroke-slate-300"
+      strokeWidth="1.75"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M11 12.5H25"
+      className="stroke-blue-600 dark:stroke-blue-400"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <circle cx="27.5" cy="25.5" r="5" className="fill-emerald-600 dark:fill-emerald-500" />
+    <path
+      d="M25.3 25.5L26.8 27L29.8 24"
+      stroke="#FFFFFF"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const CalendarCheckInIcon: React.FC<IconProps> = ({ className = 'h-7 w-7' }) => (
+  <svg viewBox="0 0 36 36" fill="none" className={className} aria-hidden="true">
+    <rect
+      x="5"
+      y="7"
+      width="26"
+      height="24"
+      rx="3"
+      className="fill-blue-600/10 stroke-slate-700 dark:stroke-slate-300"
+      strokeWidth="1.75"
+    />
+    <path
+      d="M5 13.5H31M12 4.5V9M24 4.5V9"
+      className="stroke-slate-700 dark:stroke-slate-300"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+    />
+    <path
+      d="M12.5 22L16.5 26L24 18"
+      className="stroke-emerald-600 dark:stroke-emerald-400"
+      strokeWidth="2.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const CategoryDuotoneIcon: React.FC<{ category: KpiCategory; className?: string }> = ({
   category,
   className = 'h-4 w-4',

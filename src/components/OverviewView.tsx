@@ -3,28 +3,43 @@ import { motion, useReducedMotion } from 'motion/react';
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowDownRight,
   ArrowUpRight,
   CheckCircle2,
+  ClipboardCheck,
+  Flame,
+  Minus,
   Plus,
   Search,
   TrendingUp,
 } from 'lucide-react';
 import {
+  ActionTaskItem,
   ActiveTab,
   ActualLogEntry,
   EmployeeProfile,
+  FiscalYearWorkspace,
   KpiCategoryDef,
   KpiItem,
+  KpiUnit,
   PeriodScope,
+  ProspectItem,
   QuarterKey,
+  WeeklyCheckInSettings,
 } from '../types/kpi';
 import {
+  computeWeeklyConsistency,
   getStatusLabel,
   KpiEvaluatedRow,
+  KpiMomTrend,
   PerformanceStatus,
   PortfolioSummary,
   YoYPortfolioComparison,
 } from '../utils/analytics';
+import {
+  formatEthiopianDate,
+  getEffectiveMonthWorkingConfig,
+} from '../utils/ethiopianCalendar';
 import {
   formatKpiValue,
   getCategoryLabel,
@@ -32,23 +47,94 @@ import {
   QUARTERS,
 } from '../utils/i18n';
 import { DailyWeeklyPaceSection } from './DailyWeeklyPaceSection';
-import { CascadeTreeIcon, CategoryDuotoneIcon } from './BrandIcons';
+import { MonthlyPerformanceHeatmap } from './MonthlyPerformanceHeatmap';
+import {
+  CalendarCheckInIcon,
+  CascadeTreeIcon,
+  CategoryDuotoneIcon,
+  PipelineFunnelIcon,
+} from './BrandIcons';
 
 interface OverviewViewProps {
   profile: EmployeeProfile;
+  activeFy: FiscalYearWorkspace;
   kpis: KpiItem[];
   logs: ActualLogEntry[];
   categories: KpiCategoryDef[];
   summary: PortfolioSummary;
   yoyComparison: YoYPortfolioComparison | null;
-  workingDaysPerMonth: number;
-  elapsedWorkingDays: number;
+  checkInSettings?: WeeklyCheckInSettings;
   scope: PeriodScope;
   onChangeScope: (scope: PeriodScope) => void;
   onUpdateWorkingDays: (workingDaysPerMonth: number, elapsedWorkingDays: number) => void;
+  onOpenWorkingCalendar: (monthIndex: number) => void;
+  onOpenWeeklyCheckIn: () => void;
+  onOpenPipeline: (kpiId?: string) => void;
   onNavigateTab: (tab: ActiveTab) => void;
   onQuickLogForKpi: (kpiId: string, monthIndex?: number) => void;
 }
+
+export const MomTrendIndicator: React.FC<{
+  trend: KpiMomTrend;
+  unit: KpiUnit;
+  lang: 'am' | 'en';
+  compact?: boolean;
+}> = ({ trend, unit, lang, compact = false }) => {
+  if (!trend.hasComparison) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 font-mono text-[11px] tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap"
+        title={
+          lang === 'am'
+            ? 'የቀድሞ ወር ማነጻጸሪያ ክንውን የለም'
+            : 'No prior month data for comparison'
+        }
+      >
+        <Minus className="h-3 w-3 shrink-0" />
+        {!compact && <span>MoM</span>}
+      </span>
+    );
+  }
+
+  const tooltip =
+    lang === 'am'
+      ? `${trend.currMonthShort} (${formatKpiValue(trend.currActual, unit, true)} · ${trend.currAchvPct.toFixed(1)}%) ከ ${trend.prevMonthShort} (${formatKpiValue(trend.prevActual, unit, true)} · ${trend.prevAchvPct.toFixed(1)}%) ጋር ሲነጻጸር`
+      : `${trend.currMonthShort} (${formatKpiValue(trend.currActual, unit, true)} · ${trend.currAchvPct.toFixed(1)}%) vs ${trend.prevMonthShort} (${formatKpiValue(trend.prevActual, unit, true)} · ${trend.prevAchvPct.toFixed(1)}%)`;
+
+  if (trend.direction === 'up') {
+    return (
+      <span
+        title={tooltip}
+        className="inline-flex items-center gap-0.5 font-mono text-[11px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 whitespace-nowrap"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+        <span>+{trend.achvDeltaPts.toFixed(1)}%</span>
+      </span>
+    );
+  }
+
+  if (trend.direction === 'down') {
+    return (
+      <span
+        title={tooltip}
+        className="inline-flex items-center gap-0.5 font-mono text-[11px] font-semibold tabular-nums text-red-700 dark:text-red-400 whitespace-nowrap"
+      >
+        <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />
+        <span>{trend.achvDeltaPts.toFixed(1)}%</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-0.5 font-mono text-[11px] font-medium tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap"
+    >
+      <Minus className="h-3 w-3 shrink-0" />
+      <span>0.0%</span>
+    </span>
+  );
+};
 
 export const StatusIndicator: React.FC<{
   status: PerformanceStatus;
@@ -92,16 +178,19 @@ export const StatusIndicator: React.FC<{
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
   profile,
+  activeFy,
   kpis,
   logs,
   categories,
   summary,
   yoyComparison,
-  workingDaysPerMonth,
-  elapsedWorkingDays,
+  checkInSettings,
   scope,
   onChangeScope,
   onUpdateWorkingDays,
+  onOpenWorkingCalendar,
+  onOpenWeeklyCheckIn,
+  onOpenPipeline,
   onNavigateTab,
   onQuickLogForKpi,
 }) => {
@@ -112,6 +201,22 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'exceeding' | 'attention'>('all');
   const [hoveredMonthIdx, setHoveredMonthIdx] = useState<number | null>(null);
+
+  const consistency = useMemo(
+    () => computeWeeklyConsistency(kpis, logs, profile.activeMonthIndex, checkInSettings),
+    [kpis, logs, profile.activeMonthIndex, checkInSettings]
+  );
+
+  const prospects: ProspectItem[] = activeFy.prospects || [];
+  const actionTasks: ActionTaskItem[] = activeFy.actionTasks || [];
+  const activeProspectsCount = useMemo(
+    () => prospects.filter((p) => p.stage !== 'won' && p.stage !== 'lost').length,
+    [prospects]
+  );
+  const openTasksCount = useMemo(
+    () => actionTasks.filter((t) => !t.completed).length,
+    [actionTasks]
+  );
 
   const filteredRows = useMemo(() => {
     return summary.rows.filter((row) => {
@@ -179,6 +284,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
   const paceTargetMonthIndex =
     scope.type === 'month' ? scope.monthIndex : profile.activeMonthIndex;
+  const effectivePaceConfig = getEffectiveMonthWorkingConfig(activeFy, paceTargetMonthIndex);
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-8">
@@ -195,6 +302,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <span>{profile.branchName}</span>
             <span className="mx-2" aria-hidden="true">·</span>
             <span>{profile.fiscalYearLabel}</span>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <span>{formatEthiopianDate(todayIso, lang)}</span>
             <span className="mx-2" aria-hidden="true">·</span>
             <span className="font-medium text-slate-700 dark:text-slate-300">
               {summary.scopeLabel}
@@ -278,7 +387,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {lang === 'am' ? 'አጠቃላይ ክብደት ያለው ውጤት' : 'Overall Weighted KPI Score'}
             </p>
-            <div className="mt-2 flex items-baseline gap-2.5">
+            <div className="mt-2 flex flex-wrap items-baseline gap-2">
               <span className="font-mono text-3xl font-bold tabular-nums text-slate-900 dark:text-white">
                 {summary.normalizedScorePct.toFixed(1)}%
               </span>
@@ -288,24 +397,53 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                   : `Grade ${summary.overallGrade.code}`}
               </span>
             </div>
-            <p className="mt-2 text-xs text-slate-600 dark:text-slate-400 truncate">
-              <span>
-                {lang === 'am' ? summary.overallGrade.labelAm : summary.overallGrade.labelEn}
-              </span>
-              {yoyComparison && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-600 dark:text-slate-400">
+              {summary.portfolioMomTrend.hasComparison && (
                 <>
-                  <span className="mx-1.5" aria-hidden="true">·</span>
                   <span
-                    className={`font-mono font-semibold tabular-nums ${
-                      yoyComparison.scoreDeltaPts >= 0
+                    title={
+                      lang === 'am'
+                        ? `${summary.portfolioMomTrend.currMonthShort} (${summary.portfolioMomTrend.currScorePct.toFixed(1)}%) ከ ${summary.portfolioMomTrend.prevMonthShort} (${summary.portfolioMomTrend.prevScorePct.toFixed(1)}%) ጋር ሲነጻጸር`
+                        : `${summary.portfolioMomTrend.currMonthShort} (${summary.portfolioMomTrend.currScorePct.toFixed(1)}%) vs ${summary.portfolioMomTrend.prevMonthShort} (${summary.portfolioMomTrend.prevScorePct.toFixed(1)}%)`
+                    }
+                    className={`inline-flex items-center gap-0.5 font-mono font-semibold tabular-nums ${
+                      summary.portfolioMomTrend.direction === 'up'
                         ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-amber-700 dark:text-amber-400'
+                        : summary.portfolioMomTrend.direction === 'down'
+                          ? 'text-red-700 dark:text-red-400'
+                          : 'text-slate-500'
                     }`}
                   >
-                    {yoyComparison.scoreDeltaPts >= 0 ? '+' : ''}
-                    {yoyComparison.scoreDeltaPts.toFixed(1)}% YoY
+                    {summary.portfolioMomTrend.direction === 'up' ? (
+                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+                    ) : summary.portfolioMomTrend.direction === 'down' ? (
+                      <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <Minus className="h-3 w-3 shrink-0" />
+                    )}
+                    <span>
+                      {summary.portfolioMomTrend.scoreDeltaPts >= 0 ? '+' : ''}
+                      {summary.portfolioMomTrend.scoreDeltaPts.toFixed(1)}% MoM
+                    </span>
                   </span>
+                  <span aria-hidden="true">·</span>
                 </>
+              )}
+              {yoyComparison ? (
+                <span
+                  className={`font-mono font-semibold tabular-nums ${
+                    yoyComparison.scoreDeltaPts >= 0
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-amber-700 dark:text-amber-400'
+                  }`}
+                >
+                  {yoyComparison.scoreDeltaPts >= 0 ? '+' : ''}
+                  {yoyComparison.scoreDeltaPts.toFixed(1)}% YoY
+                </span>
+              ) : (
+                <span className="truncate">
+                  {lang === 'am' ? summary.overallGrade.labelAm : summary.overallGrade.labelEn}
+                </span>
               )}
             </p>
           </div>
@@ -452,16 +590,91 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </motion.div>
       </div>
 
-      {/* Item #1: Daily & Weekly Pace Breakdown Section */}
+      {/* Weekly Check-In Consistency & Prospect Pipeline Strip */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-5">
+        <div className="lg:col-span-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:border-r lg:border-slate-200 dark:lg:border-slate-800 lg:pr-5">
+          <div className="flex items-start gap-3">
+            <CalendarCheckInIcon className="h-7 w-7 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <div className="font-bold text-slate-900 dark:text-white flex flex-wrap items-center gap-1.5">
+                <span>
+                  {lang === 'am' ? 'ሳምንታዊ የKPI ምዝገባ ወጥነት' : 'Weekly KPI Check-In Consistency'}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1 font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                  <Flame className="h-3.5 w-3.5" />
+                  <span>
+                    {consistency.streakWeeks}w
+                  </span>
+                </span>
+              </div>
+              <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                {consistency.missingKpis.length === 0
+                  ? lang === 'am'
+                    ? `ሁሉም ${consistency.totalKpis} መለኪያዎች በዚህ ሳምንት ተመዝግበዋል`
+                    : `All ${consistency.totalKpis} KPIs updated this week`
+                  : lang === 'am'
+                    ? `${consistency.updatedCount}/${consistency.totalKpis} ተመዝግበዋል · ${consistency.missingKpis.length} ሳምንታዊ ምዝገባ ይጠብቃሉ`
+                    : `${consistency.updatedCount}/${consistency.totalKpis} logged · ${consistency.missingKpis.length} pending weekly update`}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenWeeklyCheckIn}
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-400 transition-colors whitespace-nowrap shrink-0 self-start sm:self-auto cursor-pointer"
+          >
+            <ClipboardCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            <span>{lang === 'am' ? 'ሳምንታዊ ምዝገባ ክፈት' : 'Weekly Check-In'}</span>
+          </button>
+        </div>
+
+        <div className="lg:col-span-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-100 dark:border-slate-800 pt-3 lg:border-t-0 lg:pt-0 lg:pl-2">
+          <div className="flex items-start gap-3">
+            <PipelineFunnelIcon className="h-7 w-7 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <div className="font-bold text-slate-900 dark:text-white">
+                {lang === 'am'
+                  ? 'የደንበኞች ፓይፕላይን እና የድርጊት ዝርዝር'
+                  : 'Prospect Pipeline & Action Tasks'}
+              </div>
+              <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                <span>
+                  {activeProspectsCount}{' '}
+                  {lang === 'am' ? 'ንቁ ተስፋ ሰጪ ደንበኞች' : 'active client prospects'}
+                </span>
+                <span className="mx-1.5" aria-hidden="true">·</span>
+                <span>
+                  {openTasksCount}{' '}
+                  {lang === 'am' ? 'ቀሪ የስራ ተግባራት' : 'open follow-up tasks'}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onOpenPipeline()}
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:border-blue-600 transition-colors whitespace-nowrap shrink-0 self-start sm:self-auto cursor-pointer"
+          >
+            <span>{lang === 'am' ? 'ፓይፕላይን እና ተግባራት →' : 'Pipeline & Tasks →'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Item #1: Daily & Weekly Pace Breakdown Section (Holiday-Aware) */}
       <DailyWeeklyPaceSection
         profile={profile}
         kpis={kpis}
         logs={logs}
         categories={categories}
         targetMonthIndex={paceTargetMonthIndex}
-        workingDaysPerMonth={workingDaysPerMonth}
-        elapsedWorkingDays={elapsedWorkingDays}
+        workingDaysPerMonth={effectivePaceConfig.netWorkingDays}
+        elapsedWorkingDays={effectivePaceConfig.elapsedWorkingDays}
+        holidayDeductedCount={effectivePaceConfig.holidays.length}
         onUpdateWorkingDays={onUpdateWorkingDays}
+        onOpenWorkingCalendar={onOpenWorkingCalendar}
         onQuickLogForKpi={(kpiId, mIdx) => onQuickLogForKpi(kpiId, mIdx)}
       />
 
@@ -704,6 +917,19 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
       </div>
 
+      {/* 12-Month KPI Attainment Density Heatmap */}
+      <MonthlyPerformanceHeatmap
+        profile={profile}
+        kpis={kpis}
+        logs={logs}
+        categories={categories}
+        monthlyCompositeTrend={summary.monthlyCompositeTrend}
+        selectedScope={scope}
+        onChangeScope={onChangeScope}
+        onQuickLogForKpi={onQuickLogForKpi}
+        onNavigateBranchPlan={() => onNavigateTab('branch')}
+      />
+
       {/* High-Density KPI Scorecard Table */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-slate-200 dark:border-slate-800 p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -791,7 +1017,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <th className="px-3 py-3 text-right">{lang === 'am' ? 'የእኔ እቅድ' : 'My Target'}</th>
                 <th className="px-3 py-3 text-right">{lang === 'am' ? 'ክንውን (Actual)' : 'Actual'}</th>
                 <th className="px-3 py-3 text-right">{lang === 'am' ? 'ልዩነት (Gap)' : 'Variance'}</th>
-                <th className="px-3 py-3 text-right">{lang === 'am' ? 'አፈጻጸም %' : 'Achv %'}</th>
+                <th className="px-3 py-3 text-right">
+                  {lang === 'am' ? 'አፈጻጸም % · MoM' : 'Achv % · MoM'}
+                </th>
                 <th className="px-3 py-3 text-right">{lang === 'am' ? 'ነጥብ (Weight)' : 'Score'}</th>
                 <th className="px-3 py-3">{lang === 'am' ? 'ሁኔታ' : 'Status'}</th>
                 <th className="py-3 pl-2 pr-5 text-right">{lang === 'am' ? 'ድርጊት' : 'Action'}</th>
@@ -828,9 +1056,37 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       {formatKpiValue(row.periodTarget, row.kpi.unit)}
                     </td>
                     <td className="px-3 py-3.5 text-right font-mono font-semibold tabular-nums text-slate-900 dark:text-white whitespace-nowrap">
-                      {row.hasActualData
-                        ? formatKpiValue(row.periodActual, row.kpi.unit)
-                        : '—'}
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        <span>
+                          {row.hasActualData
+                            ? formatKpiValue(row.periodActual, row.kpi.unit)
+                            : '—'}
+                        </span>
+                        {row.momTrend.hasComparison && (
+                          <span
+                            title={
+                              lang === 'am'
+                                ? `ከ${row.momTrend.prevMonthShort} ወር ጋር ሲነጻጸር (${row.momTrend.achvDeltaPts >= 0 ? '+' : ''}${row.momTrend.achvDeltaPts.toFixed(1)}% አፈጻጸም)`
+                                : `Compared vs ${row.momTrend.prevMonthShort} (${row.momTrend.achvDeltaPts >= 0 ? '+' : ''}${row.momTrend.achvDeltaPts.toFixed(1)}% achievement)`
+                            }
+                            className={
+                              row.momTrend.direction === 'up'
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : row.momTrend.direction === 'down'
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-slate-400'
+                            }
+                          >
+                            {row.momTrend.direction === 'up' ? (
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            ) : row.momTrend.direction === 'down' ? (
+                              <ArrowDownRight className="h-3.5 w-3.5" />
+                            ) : (
+                              <Minus className="h-3 w-3" />
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className={`px-3 py-3.5 text-right font-mono tabular-nums whitespace-nowrap ${
@@ -849,8 +1105,17 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                           )}`
                         : '—'}
                     </td>
-                    <td className="px-3 py-3.5 text-right font-mono font-bold tabular-nums text-slate-900 dark:text-white whitespace-nowrap">
-                      {row.hasActualData ? `${row.achievementPct.toFixed(1)}%` : '0.0%'}
+                    <td className="px-3 py-3.5 text-right whitespace-nowrap">
+                      <div className="inline-flex flex-col items-end">
+                        <span className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">
+                          {row.hasActualData ? `${row.achievementPct.toFixed(1)}%` : '0.0%'}
+                        </span>
+                        <MomTrendIndicator
+                          trend={row.momTrend}
+                          unit={row.kpi.unit}
+                          lang={lang}
+                        />
+                      </div>
                     </td>
                     <td className="px-3 py-3.5 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap">
                       <span className="font-semibold text-slate-900 dark:text-white">
@@ -862,14 +1127,26 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       <StatusIndicator status={row.status} lang={lang} />
                     </td>
                     <td className="py-3.5 pl-2 pr-5 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => onQuickLogForKpi(row.kpi.id)}
-                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-400 transition-colors cursor-pointer"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>{lang === 'am' ? 'ክንውን' : 'Log'}</span>
-                      </button>
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        {row.kpi.direction === 'higher_better' && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenPipeline(row.kpi.id)}
+                            className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                            title={lang === 'am' ? 'የደንበኞች ፓይፕላይን እይ' : 'Inspect KPI Pipeline'}
+                          >
+                            <span>{lang === 'am' ? 'ፓይፕላይን' : 'Leads'}</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onQuickLogForKpi(row.kpi.id)}
+                          className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-blue-600 hover:text-blue-700 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>{lang === 'am' ? 'ክንውን' : 'Log'}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

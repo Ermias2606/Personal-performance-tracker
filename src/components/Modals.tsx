@@ -28,7 +28,19 @@ import {
   cloneFiscalYearWithGrowth,
   normalizeDatabasePayload,
 } from '../storage/offlineDb';
+import {
+  computeAchievementPct,
+  computeActualForIndices,
+  getKpiMonthActualInfo,
+} from '../utils/analytics';
+import { getEffectiveMonthWorkingConfig } from '../utils/ethiopianCalendar';
 import { formatKpiValue, getFiscalMonths } from '../utils/i18n';
+import {
+  cascadeAnnualToQuartersAndMonths,
+  roundForKpiUnit,
+  updateMonthTargetWithSync,
+} from '../utils/planCascade';
+import { EthiopianDateInput } from './WorkingCalendarModal';
 
 // ============================================================================
 // 1. Log Actual Performance Modal
@@ -37,21 +49,27 @@ import { formatKpiValue, getFiscalMonths } from '../utils/i18n';
 interface LogActualModalProps {
   isOpen: boolean;
   profile: EmployeeProfile;
+  activeFy: FiscalYearWorkspace;
   kpis: KpiItem[];
+  logs: ActualLogEntry[];
   initialKpiId?: string;
   initialMonthIndex?: number;
   onClose: () => void;
   onAddLog: (entry: Omit<ActualLogEntry, 'id' | 'createdAt'>) => void;
+  onSaveKpi: (kpi: KpiItem) => void;
 }
 
 export const LogActualModal: React.FC<LogActualModalProps> = ({
   isOpen,
   profile,
+  activeFy,
   kpis,
+  logs,
   initialKpiId,
   initialMonthIndex,
   onClose,
   onAddLog,
+  onSaveKpi,
 }) => {
   const lang = profile.language;
   const fiscalMonths = getFiscalMonths(profile.calendarType);
@@ -63,6 +81,8 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [value, setValue] = useState<string>('');
   const [note, setNote] = useState<string>('');
+  const [quickTargetStr, setQuickTargetStr] = useState<string>('');
+  const [quickTargetMode, setQuickTargetMode] = useState<'month' | 'annual'>('month');
 
   React.useEffect(() => {
     if (isOpen) {
@@ -72,6 +92,8 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
       );
       setValue('');
       setNote('');
+      setQuickTargetStr('');
+      setQuickTargetMode('month');
     }
   }, [isOpen, initialKpiId, initialMonthIndex, kpis, profile.activeMonthIndex]);
 
@@ -79,6 +101,103 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
 
   const selectedKpi = kpis.find((k) => k.id === kpiId) || kpis[0];
   const monthTarget = selectedKpi ? selectedKpi.monthlyTargets[monthIndex] ?? 0 : 0;
+  const mActualInfo = selectedKpi
+    ? getKpiMonthActualInfo(selectedKpi.id, monthIndex, logs)
+    : { value: 0, hasData: false, logCount: 0 };
+
+  const netConfig = getEffectiveMonthWorkingConfig(activeFy, monthIndex);
+  const remainingDays = Math.max(1, netConfig.netWorkingDays - netConfig.elapsedWorkingDays);
+
+  const isLowerBetter = selectedKpi?.direction === 'lower_better';
+  const isAverage = selectedKpi?.aggregation === 'average';
+
+  const remainingGap = selectedKpi
+    ? isLowerBetter
+      ? Math.max(0, mActualInfo.value - monthTarget)
+      : Math.max(0, monthTarget - mActualInfo.value)
+    : 0;
+
+  const requiredDailyPace =
+    selectedKpi && !isLowerBetter && !isAverage && monthTarget > 0
+      ? roundForKpiUnit(remainingGap / remainingDays, selectedKpi.unit)
+      : null;
+
+  const currMonthPct = selectedKpi
+    ? computeAchievementPct(selectedKpi, monthTarget, mActualInfo.value, mActualInfo.hasData)
+    : 0;
+
+  const typedNumeric =
+    value.trim() !== '' && !Number.isNaN(Number(value)) ? Number(value) : null;
+
+  const projectedMonthTotal =
+    typedNumeric !== null ? mActualInfo.value + typedNumeric : mActualInfo.value;
+
+  const projectedMonthPct =
+    selectedKpi && typedNumeric !== null
+      ? computeAchievementPct(selectedKpi, monthTarget, projectedMonthTotal, true)
+      : currMonthPct;
+
+  const projectedAnnualStats = (() => {
+    if (!selectedKpi || typedNumeric === null || selectedKpi.personalAnnualTarget <= 0) {
+      return null;
+    }
+    const simulatedLogs: ActualLogEntry[] = [
+      ...logs,
+      {
+        id: 'preview-log',
+        kpiId: selectedKpi.id,
+        monthIndex,
+        date,
+        value: typedNumeric,
+        note: '',
+        createdAt: Date.now(),
+      },
+    ];
+    const allIndices = Array.from({ length: 12 }, (_, idx) => idx);
+    const ytdAfter = computeActualForIndices(selectedKpi, allIndices, simulatedLogs);
+    const pctAfter = computeAchievementPct(
+      selectedKpi,
+      selectedKpi.personalAnnualTarget,
+      ytdAfter.actual,
+      true
+    );
+    return {
+      actual: ytdAfter.actual,
+      pct: pctAfter,
+    };
+  })();
+
+  const handleApplyQuickTarget = () => {
+    if (!selectedKpi) return;
+    const raw = Number(quickTargetStr);
+    if (Number.isNaN(raw) || raw <= 0) return;
+
+    if (quickTargetMode === 'annual') {
+      const updated = cascadeAnnualToQuartersAndMonths(
+        selectedKpi,
+        raw,
+        selectedKpi.distributionStrategy || 'equal',
+        activeFy
+      );
+      onSaveKpi(updated);
+    } else {
+      const updated = updateMonthTargetWithSync(selectedKpi, monthIndex, raw, true);
+      onSaveKpi(updated);
+    }
+    setQuickTargetStr('');
+  };
+
+  const handleCascadeExistingAnnual = () => {
+    if (!selectedKpi || selectedKpi.personalAnnualTarget <= 0) return;
+    onSaveKpi(
+      cascadeAnnualToQuartersAndMonths(
+        selectedKpi,
+        selectedKpi.personalAnnualTarget,
+        selectedKpi.distributionStrategy || 'equal',
+        activeFy
+      )
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,8 +216,8 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4 backdrop-blur-xs">
-      <div className="w-full max-w-md rounded-t-3xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xl my-auto">
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200 dark:bg-slate-700 sm:hidden" />
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3.5">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
@@ -130,15 +249,24 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
                 onChange={(e) => setKpiId(e.target.value)}
                 className="mt-1 w-full min-h-[42px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-medium text-slate-900 dark:text-slate-100 focus:border-blue-600 focus:outline-hidden"
               >
-                {kpis.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.code} — {k.name}
-                  </option>
-                ))}
+                {kpis.map((k) => {
+                  const mT = k.monthlyTargets[monthIndex] ?? 0;
+                  return (
+                    <option key={k.id} value={k.id}>
+                      {k.code} — {k.name} (
+                      {mT > 0
+                        ? `${lang === 'am' ? 'እቅድ' : 'Plan'}: ${formatKpiValue(mT, k.unit, true)}`
+                        : lang === 'am'
+                          ? 'እቅድ የለም'
+                          : 'Unplanned'}
+                      )
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                   {lang === 'am' ? 'የበጀት ወር' : 'Fiscal Month'}
@@ -156,30 +284,164 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {lang === 'am' ? 'ቀን' : 'Activity Date'}
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="mt-1 w-full min-h-[42px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 font-mono text-xs text-slate-900 dark:text-slate-100 focus:border-blue-600 focus:outline-hidden"
-                />
-              </div>
+              <EthiopianDateInput
+                valueIso={date}
+                onChangeIso={setDate}
+                lang={lang}
+                label={lang === 'am' ? 'የክንውን ቀን' : 'Activity Date'}
+              />
             </div>
 
+            {/* Assigned Plan Benchmark Strip */}
+            {selectedKpi && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 p-3 space-y-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px]">
+                  <div>
+                    <div className="text-slate-500 dark:text-slate-400">
+                      {lang === 'am' ? 'የወሩ እቅድ' : 'Month Plan'}
+                    </div>
+                    <div className="mt-0.5 font-mono text-xs font-bold tabular-nums text-slate-900 dark:text-white">
+                      {formatKpiValue(monthTarget, selectedKpi.unit, true)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-slate-500 dark:text-slate-400">
+                      {lang === 'am' ? 'እስካሁን (MTD)' : 'Current MTD'}
+                    </div>
+                    <div className="mt-0.5 font-mono text-xs font-bold tabular-nums text-slate-900 dark:text-white">
+                      {formatKpiValue(mActualInfo.value, selectedKpi.unit, true)}
+                      {monthTarget > 0 && (
+                        <span className="ml-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                          ({currMonthPct.toFixed(0)}%)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-slate-500 dark:text-slate-400">
+                      {lang === 'am' ? 'ቀሪ ክፍተት' : 'Remaining Gap'}
+                    </div>
+                    <div
+                      className={`mt-0.5 font-mono text-xs font-bold tabular-nums ${
+                        monthTarget > 0 && remainingGap <= 0
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-amber-700 dark:text-amber-400'
+                      }`}
+                    >
+                      {monthTarget <= 0
+                        ? '—'
+                        : remainingGap <= 0
+                          ? lang === 'am'
+                            ? 'ተሳክቷል'
+                            : 'Target Met'
+                          : formatKpiValue(remainingGap, selectedKpi.unit, true)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-slate-500 dark:text-slate-400">
+                      {requiredDailyPace !== null
+                        ? lang === 'am'
+                          ? `በቀን የሚጠበቅ (${remainingDays} ቀን)`
+                          : `Req / Day (${remainingDays}d)`
+                        : lang === 'am'
+                          ? 'ዓመታዊ እቅድ'
+                          : 'Annual Plan'}
+                    </div>
+                    <div className="mt-0.5 font-mono text-xs font-bold tabular-nums text-slate-900 dark:text-white">
+                      {requiredDailyPace !== null
+                        ? formatKpiValue(requiredDailyPace, selectedKpi.unit, true)
+                        : formatKpiValue(selectedKpi.personalAnnualTarget, selectedKpi.unit, true)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inline Guardrail: Quick Plan Target Assignment if Month Plan is 0 */}
+                {monthTarget <= 0 && (
+                  <div className="border-t border-slate-200/80 dark:border-slate-700/80 pt-2.5 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span className="font-semibold text-amber-700 dark:text-amber-400">
+                        {lang === 'am'
+                          ? 'ለዚህ ወር የተሰጠ እቅድ 0 ነው — እዚሁ እቅድ ያስገቡ፦'
+                          : 'No monthly plan assigned yet — set plan inline:'}
+                      </span>
+                      {selectedKpi.personalAnnualTarget > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleCascadeExistingAnnual}
+                          className="font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
+                        >
+                          {lang === 'am'
+                            ? `ዓመታዊ እቅዱን (${formatKpiValue(selectedKpi.personalAnnualTarget, selectedKpi.unit, true)}) አካፍል`
+                            : `Cascade Annual (${formatKpiValue(selectedKpi.personalAnnualTarget, selectedKpi.unit, true)})`}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={quickTargetMode}
+                        onChange={(e) =>
+                          setQuickTargetMode(e.target.value as 'month' | 'annual')
+                        }
+                        className="min-h-[34px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 focus:border-blue-600 focus:outline-hidden"
+                      >
+                        <option value="month">
+                          {lang === 'am' ? 'የወሩ እቅድ' : 'Month Plan'}
+                        </option>
+                        <option value="annual">
+                          {lang === 'am' ? 'ዓመታዊ (ለ12 ወር)' : 'Annual (12M)'}
+                        </option>
+                      </select>
+
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        placeholder={
+                          quickTargetMode === 'annual'
+                            ? lang === 'am'
+                              ? 'ዓመታዊ እቅድ...'
+                              : 'Annual target...'
+                            : lang === 'am'
+                              ? 'ወርሃዊ እቅድ...'
+                              : 'Monthly target...'
+                        }
+                        value={quickTargetStr}
+                        onChange={(e) => setQuickTargetStr(e.target.value)}
+                        className="min-h-[34px] flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-900 dark:text-white focus:border-blue-600 focus:outline-hidden"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleApplyQuickTarget}
+                        className="min-h-[34px] rounded-lg bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        {lang === 'am' ? 'እቅድ መድብ' : 'Set Plan'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
-              <div className="flex items-baseline justify-between">
+              <div className="flex items-baseline justify-between gap-2">
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                   {lang === 'am' ? 'የተከናወነው መጠን (Actual Value)' : 'Actual Achieved Value'}
                 </label>
-                {selectedKpi && (
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                    {lang === 'am' ? 'የወሩ እቅድ፦ ' : 'Month Target: '}
-                    {formatKpiValue(monthTarget, selectedKpi.unit)}
-                  </span>
+                {selectedKpi && !isLowerBetter && !isAverage && remainingGap > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setValue(String(remainingGap))}
+                    className="text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
+                  >
+                    {lang === 'am'
+                      ? `ቀሪውን ሙላ (${formatKpiValue(remainingGap, selectedKpi.unit, true)})`
+                      : `Fill Remaining (${formatKpiValue(remainingGap, selectedKpi.unit, true)})`}
+                  </button>
                 )}
               </div>
               <div className="mt-1 flex items-center gap-2">
@@ -199,6 +461,33 @@ export const LogActualModal: React.FC<LogActualModalProps> = ({
                   </span>
                 )}
               </div>
+
+              {/* Live Plan Attainment Impact Preview */}
+              {selectedKpi && typedNumeric !== null && monthTarget > 0 && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/30 px-3 py-2 text-[11px]">
+                  <span className="text-slate-700 dark:text-slate-300">
+                    {lang === 'am' ? 'አዲስ ወርሃዊ ድምር፦ ' : 'Projected Month: '}
+                    <strong className="font-mono tabular-nums text-slate-900 dark:text-white">
+                      {formatKpiValue(projectedMonthTotal, selectedKpi.unit, true)}
+                    </strong>
+                    <span className="mx-1.5 text-slate-400" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="font-mono font-semibold tabular-nums text-blue-700 dark:text-blue-400">
+                      {currMonthPct.toFixed(1)}% → {projectedMonthPct.toFixed(1)}%
+                    </span>
+                  </span>
+
+                  {projectedAnnualStats && (
+                    <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                      {lang === 'am' ? 'ዓመታዊ፦ ' : 'Annual YTD: '}
+                      <strong className="text-emerald-700 dark:text-emerald-400">
+                        {projectedAnnualStats.pct.toFixed(1)}%
+                      </strong>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>

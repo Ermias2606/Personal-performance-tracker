@@ -1,10 +1,15 @@
 import {
+  ActionTaskItem,
   ActualLogEntry,
   AppDatabasePayload,
+  AppraisalNarrative,
   EmployeeProfile,
   FiscalYearWorkspace,
   KpiItem,
+  MonthWorkingConfig,
+  ProspectItem,
   QuarterKey,
+  WeeklyCheckInSettings,
 } from '../types/kpi';
 import { DEFAULT_KPI_CATEGORIES, QUARTERS } from '../utils/i18n';
 
@@ -13,6 +18,159 @@ const DB_VERSION = 1;
 const STORE_NAME = 'app_state';
 const RECORD_KEY = 'primary_workspace';
 const LS_FALLBACK_KEY = 'biqat_kpi_fallback_v1';
+
+function buildDefaultMonthlyWorkingConfigs(): Record<number, MonthWorkingConfig> {
+  return {
+    2: {
+      baseWorkingDays: 26,
+      elapsedWorkingDays: 24,
+      holidays: [
+        {
+          id: 'hol-enkutatash-2019',
+          date: '2026-09-11',
+          nameAm: 'እንቁጣጣሽ (አዲስ ዓመት)',
+          nameEn: 'Enkutatash (Ethiopian New Year)',
+          type: 'public_holiday',
+        },
+        {
+          id: 'hol-meskel-2019',
+          date: '2026-09-27',
+          nameAm: 'መስቀል በዓል',
+          nameEn: 'Finding of the True Cross (Meskel)',
+          type: 'public_holiday',
+        },
+      ],
+    },
+    3: {
+      baseWorkingDays: 26,
+      elapsedWorkingDays: 20,
+      holidays: [
+        {
+          id: 'leave-oct-1',
+          date: '2026-10-19',
+          nameAm: 'የግማሽ ዓመት የስልጠና ፈቃድ',
+          nameEn: 'Personal Training / Leave Day',
+          type: 'personal_leave',
+        },
+      ],
+    },
+  };
+}
+
+function buildDefaultProspects(): ProspectItem[] {
+  return [
+    {
+      id: 'pros-1',
+      kpiId: 'kpi-deposit',
+      monthIndex: 3,
+      clientName: 'አቢሲኒያ ኢምፖርት እና ትሬዲንግ ኃ/የተ/የግ/ማ (Abyssinia Trading PLC)',
+      contactNote: 'የጊዜ ገደብ ተቀማጭ ሒሳብ ውል በመጠናቀቅ ላይ — ከፋይናንስ ኃላፊ ጋር ቀጠሮ ተይዟል',
+      expectedValue: 250_000,
+      probabilityPct: 80,
+      stage: 'committed',
+      targetDate: '2026-10-30',
+      createdAt: 1761200000000,
+    },
+    {
+      id: 'pros-2',
+      kpiId: 'kpi-fcy',
+      monthIndex: 3,
+      clientName: 'ዶ/ር ሄኖክ ገብረመድኅን — ዲያስፖራ FCY ሒሳብ (Dr. Henok Diaspora Inflow)',
+      contactNote: 'የSWIFT ማስተላለፊያ ሰነድ የተላከ ሲሆን በዚህ ሳምንት ገቢ ይሆናል',
+      expectedValue: 1_800,
+      probabilityPct: 80,
+      stage: 'committed',
+      targetDate: '2026-10-29',
+      createdAt: 1761260000000,
+    },
+    {
+      id: 'pros-3',
+      kpiId: 'kpi-accounts',
+      monthIndex: 3,
+      clientName: 'ቦሌ ሜዲካል ክሊኒክ ሰራተኞች ደመወዝ ሒሳብ (Bole Clinic Staff Payroll)',
+      contactNote: '12 አዲስ የደመወዝ ቁጠባ ሒሳቦች የKYC ቅጽ ተሰብስቧል',
+      expectedValue: 12,
+      probabilityPct: 50,
+      stage: 'follow_up',
+      targetDate: '2026-10-31',
+      createdAt: 1761310000000,
+    },
+    {
+      id: 'pros-4',
+      kpiId: 'kpi-deposit',
+      monthIndex: 4,
+      clientName: 'ሰላም ኮንስትራክሽን ማሽነሪ ኪራይ (Selam Construction)',
+      contactNote: 'ለኅዳር ወር ተንቀሳቃሽ ሒሳብ የመጀመሪያ ደረጃ ድርድር',
+      expectedValue: 450_000,
+      probabilityPct: 25,
+      stage: 'lead',
+      targetDate: '2026-11-12',
+      createdAt: 1761380000000,
+    },
+  ];
+}
+
+function buildDefaultActionTasks(): ActionTaskItem[] {
+  return [
+    {
+      id: 'task-1',
+      kpiId: 'kpi-deposit',
+      title: 'የአቢሲኒያ ትሬዲንግ 250K ETB የጊዜ ገደብ ተቀማጭ ፊርማ ማጠናቀቅ (Finalize 250K ETB deposit)',
+      dueDate: '2026-10-29',
+      priority: 'high',
+      completed: false,
+      createdAt: 1761390000000,
+    },
+    {
+      id: 'task-2',
+      kpiId: 'kpi-fcy',
+      title: '5 የውጭ ምንዛሬ ደንበኞች ጋር የስልክ ክትትል ማድረግ (Follow up with 5 diaspora FCY clients)',
+      dueDate: '2026-10-30',
+      priority: 'high',
+      completed: false,
+      createdAt: 1761400000000,
+    },
+    {
+      id: 'task-3',
+      kpiId: 'kpi-accounts',
+      title: 'የቦሌ ክሊኒክ 12 ሰራተኞች ሒሳብ መክፈት እና ሞባይል ባንኪንግ ማስጀመር',
+      dueDate: '2026-10-31',
+      priority: 'medium',
+      completed: false,
+      createdAt: 1761410000000,
+    },
+    {
+      id: 'task-4',
+      kpiId: 'kpi-error',
+      title: 'የሳምንቱን የKYC ሰነዶች ትክክለኛነት ቅድመ-ኦዲት ፍተሻ ማጠናቀቅ',
+      dueDate: '2026-10-25',
+      priority: 'normal',
+      completed: true,
+      completedAt: 1761420000000,
+      createdAt: 1761320000000,
+    },
+  ];
+}
+
+function buildDefaultAppraisalNarrative(): AppraisalNarrative {
+  return {
+    keyAchievements:
+      '• በዲጂታል ባንኪንግ፣ በመርቻንት QR/POS ማስፋፋት እና በኦፕሬሽን ጥራት (0.4% ስህተት ምጣኔ) ከወርሃዊ እቅድ በላይ ውጤት ተመዝግቧል።\n• በሩብ ዓመቱ ከቅርንጫፉ አጠቃላይ የተቀማጭ ገንዘብ ግብ ከ10% በላይ የግል ድርሻ ተበርክቷል።',
+    varianceExplanations:
+      '• በጥቅምት ወር የውጭ ምንዛሬ (FCY) እና የተቀማጭ ገንዘብ ክንውን በወሩ መጨረሻ ሳምንት በሚጠናቀቁ ሁለት የኮርፖሬት ደንበኞች ምክንያት ጊዜያዊ ክፍተት አሳይቷል።',
+    nextPeriodCommitments:
+      '• በፓይፕላይን ውስጥ የተረጋገጡ 250K ETB ተቀማጭ እና $1,800 FCY ግኝቶችን እስከ ወሩ መጨረሻ ወደ ክንውን መቀየር።\n• በየሳምንቱ አርብ ወጥ የሆነ የKPI ክትትል በማድረግ የ2ኛ ሩብ ዓመት (Q2) እቅድን 100%+ ማሳካት።',
+    supervisorComments: '',
+    updatedAt: '2026-10-26T09:00:00.000Z',
+  };
+}
+
+function buildDefaultCheckInSettings(): WeeklyCheckInSettings {
+  return {
+    reminderEnabled: true,
+    reminderDay: 'friday',
+  };
+}
 
 function buildPriorYearArchive(): FiscalYearWorkspace {
   const kpis: KpiItem[] = [
@@ -277,23 +435,23 @@ export function createSeedData(): AppDatabasePayload {
 
     { id: 'log-10', kpiId: 'kpi-digital', monthIndex: 0, date: '2026-07-30', value: 52, note: 'ሞባይል ባንኪንግ አክቲቬሽን', createdAt: 1753810000000 },
     { id: 'log-11', kpiId: 'kpi-digital', monthIndex: 1, date: '2026-08-30', value: 55, note: 'ሞባይል እና ካርድ አክቲቬሽን', createdAt: 1756510000000 },
-    { id: 'log-12', kpiId: 'kpi-digital', monthIndex: 2, date: '2026-09-29', value: 61, note: 'ዲጂታል ቻናል ምዝገባ', createdAt: 1759110000000 },
-    { id: 'log-13', kpiId: 'kpi-digital', monthIndex: 3, date: '2026-10-26', value: 49, note: 'ጥቅምት ሞባይል ባንኪንግ ተጠቃሚዎች', createdAt: 1761450000000 },
+    { id: 'log-12', kpiId: 'kpi-digital', monthIndex: 2, date: '2026-09-29', value: 48, note: 'መስከረም ዲጂታል ቻናል ምዝገባ', createdAt: 1759110000000 },
+    { id: 'log-13', kpiId: 'kpi-digital', monthIndex: 3, date: '2026-10-26', value: 56, note: 'ጥቅምት ሞባይል ባንኪንግ ዘመቻ ተጠቃሚዎች', createdAt: 1761450000000 },
 
     { id: 'log-14', kpiId: 'kpi-fcy', monthIndex: 0, date: '2026-07-30', value: 3_400, note: 'ዓለም አቀፍ ሐዋላ ግኝት', createdAt: 1753820000000 },
     { id: 'log-15', kpiId: 'kpi-fcy', monthIndex: 1, date: '2026-08-30', value: 2_950, note: 'የነሐሴ የውጭ ምንዛሬ ግኝት', createdAt: 1756520000000 },
     { id: 'log-16', kpiId: 'kpi-fcy', monthIndex: 2, date: '2026-09-29', value: 4_350, note: 'የአዲስ ዓመት ዲያስፖራ ሐዋላ', createdAt: 1759120000000 },
-    { id: 'log-17', kpiId: 'kpi-fcy', monthIndex: 3, date: '2026-10-24', value: 2_600, note: 'የጥቅምት ሐዋላ እና FCY ክፍያ', createdAt: 1761300000000 },
+    { id: 'log-17', kpiId: 'kpi-fcy', monthIndex: 3, date: '2026-10-19', value: 2_600, note: 'የጥቅምት ሐዋላ እና FCY ክፍያ', createdAt: 1761300000000 },
 
     { id: 'log-18', kpiId: 'kpi-merchant', monthIndex: 0, date: '2026-07-30', value: 3, note: 'QR ነጋዴዎች ምዝገባ', createdAt: 1753830000000 },
     { id: 'log-19', kpiId: 'kpi-merchant', monthIndex: 1, date: '2026-08-30', value: 4, note: 'ነጋዴ POS እና QR', createdAt: 1756530000000 },
     { id: 'log-20', kpiId: 'kpi-merchant', monthIndex: 2, date: '2026-09-29', value: 3, note: 'ካፌ እና ሱፐርማርኬት QR', createdAt: 1759130000000 },
-    { id: 'log-21', kpiId: 'kpi-merchant', monthIndex: 3, date: '2026-10-22', value: 2, note: 'የጥቅምት አዲስ QR ነጋዴዎች', createdAt: 1761150000000 },
+    { id: 'log-21', kpiId: 'kpi-merchant', monthIndex: 3, date: '2026-10-25', value: 5, note: 'የጥቅምት አዲስ QR እና POS ነጋዴዎች', createdAt: 1761360000000 },
 
     { id: 'log-22', kpiId: 'kpi-error', monthIndex: 0, date: '2026-07-31', value: 0.6, note: 'የሐምሌ የውስጥ ኦዲት ግምገማ ውጤት', createdAt: 1753900000000 },
     { id: 'log-23', kpiId: 'kpi-error', monthIndex: 1, date: '2026-08-31', value: 0.8, note: 'የነሐሴ የትራንዛክሽን ጥራት ሪፖርት', createdAt: 1756600000000 },
-    { id: 'log-24', kpiId: 'kpi-error', monthIndex: 2, date: '2026-09-30', value: 0.5, note: 'የመስከረም ኦፕሬሽን ጥራት ቁጥጥር', createdAt: 1759200000000 },
-    { id: 'log-25', kpiId: 'kpi-error', monthIndex: 3, date: '2026-10-26', value: 0.7, note: 'የጥቅምት ወርሃዊ የጥራት ፍተሻ', createdAt: 1761460000000 },
+    { id: 'log-24', kpiId: 'kpi-error', monthIndex: 2, date: '2026-09-30', value: 0.6, note: 'የመስከረም ኦፕሬሽን ጥራት ቁጥጥር', createdAt: 1759200000000 },
+    { id: 'log-25', kpiId: 'kpi-error', monthIndex: 3, date: '2026-10-26', value: 0.4, note: 'የጥቅምት ወርሃዊ የጥራት ፍተሻ — የተሻሻለ', createdAt: 1761460000000 },
   ];
 
   const currentFy: FiscalYearWorkspace = {
@@ -302,7 +460,11 @@ export function createSeedData(): AppDatabasePayload {
     calendarType: 'july_june',
     activeMonthIndex: 3,
     workingDaysPerMonth: 26,
-    elapsedWorkingDaysInMonth: 21,
+    elapsedWorkingDaysInMonth: 20,
+    monthlyWorkingConfigs: buildDefaultMonthlyWorkingConfigs(),
+    prospects: buildDefaultProspects(),
+    actionTasks: buildDefaultActionTasks(),
+    appraisalNarrative: buildDefaultAppraisalNarrative(),
     isArchived: false,
     kpis,
     actualLogs,
@@ -311,7 +473,7 @@ export function createSeedData(): AppDatabasePayload {
   const priorFy = buildPriorYearArchive();
 
   return {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
     profile,
     categories: DEFAULT_KPI_CATEGORIES,
@@ -319,6 +481,7 @@ export function createSeedData(): AppDatabasePayload {
       pinEnabled: false,
       pinCode: '',
     },
+    checkInSettings: buildDefaultCheckInSettings(),
     activeFiscalYearId: currentFy.id,
     fiscalYears: [currentFy, priorFy],
     kpis: currentFy.kpis,
@@ -344,29 +507,68 @@ export function normalizeDatabasePayload(raw: Partial<AppDatabasePayload>): AppD
     pinCode: raw.security?.pinCode || '',
   };
 
+  const checkInSettings: WeeklyCheckInSettings = {
+    ...buildDefaultCheckInSettings(),
+    ...(raw.checkInSettings || {}),
+  };
+
   let fiscalYears: FiscalYearWorkspace[] = [];
   let activeFiscalYearId = raw.activeFiscalYearId || '';
 
   if (Array.isArray(raw.fiscalYears) && raw.fiscalYears.length > 0) {
-    fiscalYears = raw.fiscalYears.map((fy) => ({
-      ...fy,
-      workingDaysPerMonth: fy.workingDaysPerMonth || 26,
-      elapsedWorkingDaysInMonth:
-        fy.elapsedWorkingDaysInMonth !== undefined ? fy.elapsedWorkingDaysInMonth : 20,
-      kpis: Array.isArray(fy.kpis) ? fy.kpis : [],
-      actualLogs: Array.isArray(fy.actualLogs) ? fy.actualLogs : [],
-    }));
+    fiscalYears = raw.fiscalYears.map((fy) => {
+      const isPrimarySampleFy = fy.id === 'fy-2019' || fy.id === 'fy-migrated-current';
+      return {
+        ...fy,
+        workingDaysPerMonth: fy.workingDaysPerMonth || 26,
+        elapsedWorkingDaysInMonth:
+          fy.elapsedWorkingDaysInMonth !== undefined ? fy.elapsedWorkingDaysInMonth : 20,
+        monthlyWorkingConfigs:
+          fy.monthlyWorkingConfigs !== undefined
+            ? fy.monthlyWorkingConfigs
+            : isPrimarySampleFy
+              ? buildDefaultMonthlyWorkingConfigs()
+              : {},
+        prospects: Array.isArray(fy.prospects)
+          ? fy.prospects
+          : isPrimarySampleFy
+            ? buildDefaultProspects().filter((p) =>
+                (fy.kpis || []).some((k) => k.id === p.kpiId)
+              )
+            : [],
+        actionTasks: Array.isArray(fy.actionTasks)
+          ? fy.actionTasks
+          : isPrimarySampleFy
+            ? buildDefaultActionTasks()
+            : [],
+        appraisalNarrative:
+          fy.appraisalNarrative !== undefined
+            ? fy.appraisalNarrative
+            : isPrimarySampleFy
+              ? buildDefaultAppraisalNarrative()
+              : undefined,
+        kpis: Array.isArray(fy.kpis) ? fy.kpis : [],
+        actualLogs: Array.isArray(fy.actualLogs) ? fy.actualLogs : [],
+      };
+    });
   } else {
     // Migrate v1 single-year payload seamlessly and attach 2018 archive for YoY comparison
+    const migratedKpis = Array.isArray(raw.kpis) ? raw.kpis : seed.kpis;
     const migratedCurrent: FiscalYearWorkspace = {
       id: 'fy-migrated-current',
       fiscalYearLabel: profile.fiscalYearLabel || '2019 ዓ.ም (2026/27 FY)',
       calendarType: profile.calendarType || 'july_june',
       activeMonthIndex: profile.activeMonthIndex ?? 3,
       workingDaysPerMonth: 26,
-      elapsedWorkingDaysInMonth: 21,
+      elapsedWorkingDaysInMonth: 20,
+      monthlyWorkingConfigs: buildDefaultMonthlyWorkingConfigs(),
+      prospects: buildDefaultProspects().filter((p) =>
+        migratedKpis.some((k) => k.id === p.kpiId)
+      ),
+      actionTasks: buildDefaultActionTasks(),
+      appraisalNarrative: buildDefaultAppraisalNarrative(),
       isArchived: false,
-      kpis: Array.isArray(raw.kpis) ? raw.kpis : seed.kpis,
+      kpis: migratedKpis,
       actualLogs: Array.isArray(raw.actualLogs) ? raw.actualLogs : seed.actualLogs,
     };
     const priorArchive = buildPriorYearArchive();
@@ -381,7 +583,7 @@ export function normalizeDatabasePayload(raw: Partial<AppDatabasePayload>): AppD
   const activeFy = fiscalYears.find((f) => f.id === activeFiscalYearId) || fiscalYears[0];
 
   return {
-    version: 2,
+    version: 3,
     updatedAt: raw.updatedAt || new Date().toISOString(),
     profile: {
       ...profile,
@@ -391,6 +593,7 @@ export function normalizeDatabasePayload(raw: Partial<AppDatabasePayload>): AppD
     },
     categories,
     security,
+    checkInSettings,
     activeFiscalYearId,
     fiscalYears,
     kpis: activeFy.kpis,
@@ -435,6 +638,9 @@ export function cloneFiscalYearWithGrowth(
     activeMonthIndex: 0,
     workingDaysPerMonth: source.workingDaysPerMonth || 26,
     elapsedWorkingDaysInMonth: 1,
+    monthlyWorkingConfigs: {},
+    prospects: [],
+    actionTasks: [],
     isArchived: false,
     kpis: clonedKpis,
     actualLogs: [],
@@ -451,16 +657,20 @@ export function createEmptyData(existing?: AppDatabasePayload): AppDatabasePaylo
     activeMonthIndex: baseProfile.activeMonthIndex,
     workingDaysPerMonth: 26,
     elapsedWorkingDaysInMonth: 1,
+    monthlyWorkingConfigs: {},
+    prospects: [],
+    actionTasks: [],
     isArchived: false,
     kpis: [],
     actualLogs: [],
   };
   return {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
     profile: baseProfile,
     categories: existing?.categories || DEFAULT_KPI_CATEGORIES,
     security: existing?.security || { pinEnabled: false, pinCode: '' },
+    checkInSettings: existing?.checkInSettings || buildDefaultCheckInSettings(),
     activeFiscalYearId: emptyFy.id,
     fiscalYears: [emptyFy],
     kpis: [],
@@ -499,7 +709,7 @@ export async function loadAppDatabase(): Promise<AppDatabasePayload> {
     db.close();
     if (record && record.profile) {
       const normalized = normalizeDatabasePayload(record);
-      if (!record.version || record.version < 2) {
+      if (!record.version || record.version < 3) {
         await saveAppDatabase(normalized);
       }
       return normalized;
@@ -530,7 +740,7 @@ export async function saveAppDatabase(payload: AppDatabasePayload): Promise<void
 
   const nextPayload: AppDatabasePayload = {
     ...payload,
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
     kpis: activeFy ? activeFy.kpis : payload.kpis,
     actualLogs: activeFy ? activeFy.actualLogs : payload.actualLogs,

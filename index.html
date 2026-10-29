@@ -2,23 +2,144 @@
 <html lang="am">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Biqat KPI — Personal &amp; Branch Performance Tracker</title>
-    <meta name="description" content="Offline-first personal KPI performance tracker for setting branch annual plans, cascading annual, quarterly, and monthly personal targets, logging actual performance, and generating analytical reports." />
-    <meta property="og:title" content="Biqat KPI — Personal &amp; Branch Performance Tracker" />
-    <meta property="og:description" content="Offline-first personal KPI performance tracker for setting branch annual plans, cascading annual, quarterly, and monthly personal targets, logging actual performance, and generating analytical reports." />
+    <meta
+      name="description"
+      content="Plan branch KPI targets, cascade annual to 12-month personal goals, log offline actuals, and export appraisal reports with Biqat KPI."
+    />
+    <meta name="application-name" content="Biqat KPI" />
+    <meta name="author" content="Biqat KPI Workspace" />
+    <meta name="robots" content="index, follow" />
+    <meta
+      name="keywords"
+      content="KPI tracker, personal performance plan, branch annual target, Ethiopian calendar KPI, quarterly monthly KPI cascade, offline PWA scorecard, appraisal report"
+    />
+
+    <!-- Canonical URL (static fallback + dynamically synced per route) -->
+    <link
+      rel="canonical"
+      id="canonical-link"
+      href="https://ais-pre-2fgzc4gaatychnna2xeffj-30057240509.europe-west2.run.app/"
+    />
+
+    <!-- OpenGraph Social Sharing Cards -->
     <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://ais-pre-2fgzc4gaatychnna2xeffj-30057240509.europe-west2.run.app/"
+    />
+    <meta property="og:site_name" content="Biqat KPI" />
+    <meta property="og:title" content="Biqat KPI — Personal &amp; Branch Performance Tracker" />
+    <meta
+      property="og:description"
+      content="Plan branch KPI targets, cascade annual to 12-month personal goals, log offline actuals, and export appraisal reports with Biqat KPI."
+    />
+    <meta
+      property="og:image"
+      content="https://ais-pre-2fgzc4gaatychnna2xeffj-30057240509.europe-west2.run.app/og-social-card.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Biqat KPI Dashboard showing Branch &amp; Personal Annual Targets, Monthly Heatmap, and Attainment Progress"
+    />
+    <meta property="og:locale" content="am_ET" />
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <!-- Twitter / X Large Summary Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#0F172A" />
+    <meta name="twitter:title" content="Biqat KPI — Personal &amp; Branch Performance Tracker" />
+    <meta
+      name="twitter:description"
+      content="Plan branch KPI targets, cascade annual to 12-month personal goals, log offline actuals, and export appraisal reports with Biqat KPI."
+    />
+    <meta
+      name="twitter:image"
+      content="https://ais-pre-2fgzc4gaatychnna2xeffj-30057240509.europe-west2.run.app/og-social-card.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Biqat KPI Personal &amp; Branch Performance Tracker"
+    />
+
+    <!-- PWA & Mobile Standalone Meta -->
+    <meta name="theme-color" id="theme-color-meta" content="#0F172A" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Biqat KPI" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+
+    <!-- Typography Preconnects -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+Ethiopic:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+Ethiopic:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Schema.org Rich Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "name": "Biqat KPI — Personal & Branch Performance Tracker",
+            "alternateName": "ብቃት KPI",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Performance Management & KPI Scorecard",
+            "operatingSystem": "All",
+            "browserRequirements": "Requires JavaScript and IndexedDB for offline storage",
+            "inLanguage": ["am", "en"],
+            "isAccessibleForFree": true,
+            "description": "Plan branch KPI targets, cascade annual to 12-month personal goals, log offline actuals, and export appraisal reports with Biqat KPI.",
+            "featureList": [
+              "Branch Annual KPI Target & Custom Category Management",
+              "Auto-Cascading Personal Annual, Quarterly, and 12-Month Plan Matrix",
+              "Working-Day Prorated & Seasonal Target Distribution with Ethiopian Calendar (ዓ.ም)",
+              "Direct Monthly Plan vs. Actual Spreadsheet & Weekly Batch Check-Ins",
+              "Monthly Performance Density Heatmap & Year-over-Year Appraisal Reports",
+              "100% Offline IndexedDB Storage, Service Worker Caching & Optional 4-Digit PIN"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Does Biqat KPI work completely offline without internet?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Biqat KPI caches its application shell, scripts, and Amharic/English fonts via a Service Worker and stores all KPI plans, actual logs, and multi-year archives locally in IndexedDB."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do Personal Assigned Plans sync with Actual Performance Indicators?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Targets entered in the Personal Assigned Plan Editor automatically cascade across Annual, Quarterly (Q1–Q4), and all 12 Fiscal Months using Equal, Working-Day Prorated, or Seasonal Ramp-Up presets, powering live benchmarks across all actual input views."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <!-- Early Capture of PWA Install Prompt & Canonical Initialization -->
     <script>
       window.__biqatDeferredPrompt = null;
       window.addEventListener('beforeinstallprompt', function (e) {
@@ -26,6 +147,19 @@
         window.__biqatDeferredPrompt = e;
         window.dispatchEvent(new Event('biqat-pwa-prompt'));
       });
+      (function () {
+        if (!window.location) return;
+        var origin = window.location.origin;
+        var canonicalUrl = origin + window.location.pathname;
+        var canonical = document.getElementById('canonical-link');
+        if (canonical) canonical.setAttribute('href', canonicalUrl);
+        var ogUrl = document.querySelector('meta[property="og:url"]');
+        if (ogUrl) ogUrl.setAttribute('content', canonicalUrl);
+        var ogImg = document.querySelector('meta[property="og:image"]');
+        if (ogImg) ogImg.setAttribute('content', origin + '/og-social-card.png');
+        var twImg = document.querySelector('meta[name="twitter:image"]');
+        if (twImg) twImg.setAttribute('content', origin + '/og-social-card.png');
+      })();
     </script>
   </head>
   <body class="bg-[#F8FAFC] text-slate-900 antialiased selection:bg-blue-600 selection:text-white">

@@ -9,10 +9,12 @@ import {
   Download,
   HardDriveDownload,
   Laptop,
+  RefreshCw,
   Share,
   ShieldCheck,
   Smartphone,
   WifiOff,
+  Zap,
 } from 'lucide-react';
 import { AppPageRoute, Language } from '../types/kpi';
 import { useOnlineStatus, usePWAInstall } from '../hooks/usePWAInstall';
@@ -42,13 +44,27 @@ export const InstallPage: React.FC<InstallPageProps> = ({
   onExportBackup,
 }) => {
   const prefersReducedMotion = useReducedMotion();
-  const { isInstallable, isInstalled, isIOS, isInIframe, swReady, install } = usePWAInstall();
+  const {
+    isInstallable,
+    isInstalled,
+    isIOS,
+    isInIframe,
+    swReady,
+    swControlling,
+    swVersion,
+    cachedAssetCount,
+    isWarmingCache,
+    install,
+    warmOfflineCache,
+    rebuildOfflineCache,
+  } = usePWAInstall();
   const isOnline = useOnlineStatus();
 
   const [platformTab, setPlatformTab] = useState<PlatformTab>(
     isIOS ? 'ios' : 'desktop'
   );
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [cacheActionMsg, setCacheActionMsg] = useState<string | null>(null);
 
   const handleCopyUrl = async () => {
     try {
@@ -58,6 +74,26 @@ export const InstallPage: React.FC<InstallPageProps> = ({
     } catch {
       setCopiedUrl(false);
     }
+  };
+
+  const handleWarmCache = async () => {
+    await warmOfflineCache();
+    setCacheActionMsg(
+      lang === 'am'
+        ? 'የአፕ ገጾች፣ ፎንቶች እና ምስሎች ለኦፍላይን አገልግሎት ተዘጋጅተዋል።'
+        : 'App shell, routes, and Amharic/English fonts pre-cached for offline use.'
+    );
+    setTimeout(() => setCacheActionMsg(null), 4000);
+  };
+
+  const handleRebuildCache = async () => {
+    await rebuildOfflineCache();
+    setCacheActionMsg(
+      lang === 'am'
+        ? 'የService Worker ካሽ ታድሷል (ዳታቤዝዎ ምንም አይነካም)።'
+        : 'Service Worker asset cache refreshed cleanly (your KPI database is untouched).'
+    );
+    setTimeout(() => setCacheActionMsg(null), 4000);
   };
 
   return (
@@ -174,39 +210,57 @@ export const InstallPage: React.FC<InstallPageProps> = ({
           </div>
         </div>
 
-        {/* Right Live Device Readiness Diagnostics */}
+        {/* Right Live Device Readiness & Service Worker Cache Controls */}
         <div className="lg:col-span-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-7 flex flex-col justify-between space-y-5">
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3.5">
               <div className="flex items-center gap-2.5">
                 <InstallAppDeviceIcon className="h-6 w-6" />
                 <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                  {lang === 'am' ? 'የኦፍላይን ዝግጁነት ማረጋገጫ' : 'Offline & PWA Readiness'}
+                  {lang === 'am' ? 'Service Worker እና ኦፍላይን ዝግጁነት' : 'Service Worker & Offline Vault'}
                 </h2>
               </div>
-              <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                100% Ready
+              <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                {swVersion}
               </span>
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-              <div className="py-3 flex items-center justify-between gap-2">
+              <div className="py-2.5 flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                   <WifiOff className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>{lang === 'am' ? 'Service Worker ካሽ' : 'Offline Service Worker'}</span>
+                  <span>{lang === 'am' ? 'Service Worker ሁኔታ' : 'Service Worker Engine'}</span>
                 </span>
                 <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                  {swReady
+                  {swControlling
                     ? lang === 'am'
-                      ? 'ንቁ (Active)'
-                      : 'Registered'
-                    : lang === 'am'
-                      ? 'ዝግጁ (Ready)'
-                      : 'Configured'}
+                      ? 'ንቁ ተቆጣጣሪ (Controlling)'
+                      : 'Active & Controlling'
+                    : swReady
+                      ? lang === 'am'
+                        ? 'ተመዝግቧል (Registered)'
+                        : 'Registered'
+                      : lang === 'am'
+                        ? 'ዝግጁ (Ready)'
+                        : 'Ready'}
                 </span>
               </div>
 
-              <div className="py-3 flex items-center justify-between gap-2">
+              <div className="py-2.5 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                  <Zap className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>{lang === 'am' ? 'የተከማቹ ኦፍላይን ፋይሎች' : 'Cached App & Font Assets'}</span>
+                </span>
+                <span className="font-mono font-semibold text-slate-900 dark:text-white tabular-nums">
+                  {cachedAssetCount > 0
+                    ? `${cachedAssetCount} ${lang === 'am' ? 'ፋይሎች' : 'cached files'}`
+                    : lang === 'am'
+                      ? 'App Shell ዝግጁ'
+                      : 'App Shell Ready'}
+                </span>
+              </div>
+
+              <div className="py-2.5 flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                   <Database className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                   <span>{lang === 'am' ? 'የመሳሪያ ውስጥ ዳታቤዝ' : 'Local IndexedDB Vault'}</span>
@@ -216,7 +270,7 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 </span>
               </div>
 
-              <div className="py-3 flex items-center justify-between gap-2">
+              <div className="py-2.5 flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                   <ShieldCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                   <span>{lang === 'am' ? 'የግል PIN መቆለፊያ' : '4-Digit Local PIN'}</span>
@@ -232,6 +286,45 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Interactive Service Worker Cache Pre-Warm & Refresh Controls */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1">
+              <button
+                type="button"
+                disabled={isWarmingCache}
+                onClick={() => void handleWarmCache()}
+                className="min-h-[40px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/40 px-3 py-2 text-xs font-semibold text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-60"
+              >
+                <Zap className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {isWarmingCache
+                    ? lang === 'am'
+                      ? 'በማዘጋጀት ላይ...'
+                      : 'Caching...'
+                    : lang === 'am'
+                      ? 'ኦፍላይን ካሽ አጠናክር'
+                      : 'Pre-Warm Offline Cache'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isWarmingCache}
+                onClick={() => void handleRebuildCache()}
+                className="min-h-[40px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isWarmingCache ? 'animate-spin' : ''}`} />
+                <span>
+                  {lang === 'am' ? 'ካሽ አድስ (Refresh SW)' : 'Refresh SW Cache'}
+                </span>
+              </button>
+            </div>
+
+            {cacheActionMsg && (
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                {cacheActionMsg}
+              </p>
+            )}
           </div>
 
           <button
@@ -356,7 +449,7 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                   {lang === 'am'
                     ? 'አፑ የራሱ መስኮት (Window) ይኖረዋል፤ ኢንተርኔት ባይኖርም ሙሉ በሙሉ ይሰራል።'
-                    : 'Launch directly from your Windows Taskbar or macOS Dock with shortcut links to Overview, Actuals, and Reports.'}
+                    : 'Launch directly from your Windows Taskbar or macOS Dock with shortcut links to Overview, My Plan, Actuals, and Reports.'}
                 </p>
               </div>
             </>
@@ -390,7 +483,7 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                   {lang === 'am'
                     ? 'ከላይ ያለውን ባለ ሶስት ነጥብ (⋮) ሜኑ ነክተው "Install app" ወይም "Add to Home screen" የሚለውን ይጫኑ።'
-                    : 'Tap the Install button above, or tap the three-dot (⋮) Chrome menu and select "Install app".'}
+                    : 'Tap the Install button above, or tap the three-dot (⋮) Chrome menu and select "Install app" with rich preview cards.'}
                 </p>
               </div>
 
@@ -403,8 +496,8 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 </h3>
                 <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                   {lang === 'am'
-                    ? 'የብቃት KPI አርማ በስልክዎ ላይ ይቀመጣል፤ በረጅሙ ሲጫኑት ቀጥታ ወደ ክንውን መመዝገቢያ ያስገባዎታል።'
-                    : 'Appears in your Android app drawer with maskable icon support and long-press quick shortcuts.'}
+                    ? 'የብቃት KPI አርማ በስልክዎ ላይ ይቀመጣል፤ በረጅሙ ሲጫኑት ቀጥታ ወደ የግል እቅድ ወይም ክንውን መመዝገቢያ ያስገባዎታል።'
+                    : 'Appears in your Android app drawer with maskable icon support and 4 long-press quick shortcuts.'}
                 </p>
               </div>
             </>
@@ -452,7 +545,7 @@ export const InstallPage: React.FC<InstallPageProps> = ({
                 <p className="mt-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                   {lang === 'am'
                     ? '"Add to Home Screen" የሚለውን ነክተው ከላይ በቀኝ "Add" ሲሉ ሙሉ ስክሪን አፕ ሆኖ ይጫናል።'
-                    : 'Tap "Add to Home Screen" then "Add" — Biqat KPI launches full-screen with its Apple Touch Icon.'}
+                    : 'Tap "Add to Home Screen" then "Add" — Biqat KPI launches full-screen with its 180px Apple Touch Icon.'}
                 </p>
               </div>
             </>

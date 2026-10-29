@@ -5,6 +5,7 @@ import {
   FolderPlus,
   Layers,
   Plus,
+  RefreshCw,
   Scale,
   Trash2,
   X,
@@ -13,6 +14,7 @@ import {
   ActiveTab,
   AggregationMode,
   EmployeeProfile,
+  FiscalYearWorkspace,
   KpiCategory,
   KpiCategoryDef,
   KpiDirection,
@@ -20,9 +22,15 @@ import {
   KpiUnit,
 } from '../types/kpi';
 import { formatKpiValue, getCategoryLabel, getUnitLabel } from '../utils/i18n';
+import {
+  cascadeAnnualToQuartersAndMonths,
+  getKpiPlanSyncDiagnostic,
+} from '../utils/planCascade';
 
 interface BranchPlanViewProps {
   profile: EmployeeProfile;
+  activeFy?: FiscalYearWorkspace;
+  priorFy?: FiscalYearWorkspace | null;
   kpis: KpiItem[];
   categories: KpiCategoryDef[];
   onSaveKpi: (kpi: KpiItem) => void;
@@ -103,6 +111,8 @@ const KPI_QUICK_TEMPLATES: {
 
 export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
   profile,
+  activeFy,
+  priorFy,
   kpis,
   categories,
   onSaveKpi,
@@ -168,6 +178,7 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
       kpi.branchAnnualTarget > 0
         ? Math.round((kpi.personalAnnualTarget / kpi.branchAnnualTarget) * 10000) / 100
         : 0;
+    const diag = getKpiPlanSyncDiagnostic(kpi);
     setInlineNewCatOpen(false);
     setEditingDraft({
       id: kpi.id,
@@ -181,7 +192,7 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
       branchAnnualTarget: String(kpi.branchAnnualTarget),
       personalSharePct: String(share),
       personalAnnualTarget: String(kpi.personalAnnualTarget),
-      autoCascadePersonal: false,
+      autoCascadePersonal: diag.hasMonthDrift || diag.hasQuarterDrift || diag.isUnplanned,
       notes: kpi.notes || '',
     });
   };
@@ -252,6 +263,7 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
       ...editingDraft,
       personalSharePct: pctStr,
       personalAnnualTarget: bVal > 0 ? String(pVal) : editingDraft.personalAnnualTarget,
+      autoCascadePersonal: true,
     });
   };
 
@@ -264,6 +276,7 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
       ...editingDraft,
       personalAnnualTarget: pStr,
       personalSharePct: bVal > 0 ? String(pct) : editingDraft.personalSharePct,
+      autoCascadePersonal: true,
     });
   };
 
@@ -314,30 +327,7 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
 
     const existing = editingDraft.id ? kpis.find((k) => k.id === editingDraft.id) : undefined;
 
-    let quarterlyTargets = existing?.quarterlyTargets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 };
-    let monthlyTargets = existing?.monthlyTargets || Array(12).fill(0);
-
-    if (!existing || editingDraft.autoCascadePersonal) {
-      if (editingDraft.aggregation === 'average') {
-        quarterlyTargets = {
-          Q1: personalTarget,
-          Q2: personalTarget,
-          Q3: personalTarget,
-          Q4: personalTarget,
-        };
-        monthlyTargets = Array(12).fill(personalTarget);
-      } else {
-        const qBase = Math.floor((personalTarget / 4) * 100) / 100;
-        const qLast = Math.round((personalTarget - qBase * 3) * 100) / 100;
-        quarterlyTargets = { Q1: qBase, Q2: qBase, Q3: qBase, Q4: qLast };
-
-        const mBase = Math.floor((personalTarget / 12) * 100) / 100;
-        const mLast = Math.round((personalTarget - mBase * 11) * 100) / 100;
-        monthlyTargets = [...Array(11).fill(mBase), mLast];
-      }
-    }
-
-    const nextKpi: KpiItem = {
+    const baseKpi: KpiItem = {
       id: existing?.id || `kpi-${Date.now()}`,
       code: editingDraft.code.trim() || 'KPI',
       name: editingDraft.name.trim(),
@@ -348,10 +338,25 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
       aggregation: editingDraft.aggregation,
       branchAnnualTarget: branchTarget,
       personalAnnualTarget: personalTarget,
-      quarterlyTargets,
-      monthlyTargets,
+      quarterlyTargets: existing?.quarterlyTargets || { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
+      monthlyTargets: existing?.monthlyTargets || Array(12).fill(0),
+      pinnedMonths: existing?.pinnedMonths || [],
+      distributionStrategy: existing?.distributionStrategy || 'equal',
       notes: editingDraft.notes.trim(),
     };
+
+    const nextKpi =
+      !existing ||
+      editingDraft.autoCascadePersonal ||
+      existing.personalAnnualTarget !== personalTarget
+        ? cascadeAnnualToQuartersAndMonths(
+            baseKpi,
+            personalTarget,
+            baseKpi.distributionStrategy || 'equal',
+            activeFy,
+            priorFy
+          )
+        : baseKpi;
 
     onSaveKpi(nextKpi);
     setEditingDraft(null);
@@ -752,8 +757,52 @@ export const BranchPlanView: React.FC<BranchPlanViewProps> = ({
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-4 text-right font-mono font-semibold tabular-nums text-slate-900 dark:text-white whitespace-nowrap">
-                        {formatKpiValue(kpi.personalAnnualTarget, kpi.unit)}
+                      <td className="px-3 py-4 text-right whitespace-nowrap">
+                        <div className="font-mono font-semibold tabular-nums text-slate-900 dark:text-white">
+                          {formatKpiValue(kpi.personalAnnualTarget, kpi.unit)}
+                        </div>
+                        {(() => {
+                          const diag = getKpiPlanSyncDiagnostic(kpi);
+                          if (
+                            kpi.personalAnnualTarget > 0 &&
+                            (diag.hasMonthDrift || diag.hasQuarterDrift)
+                          ) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onSaveKpi(
+                                    cascadeAnnualToQuartersAndMonths(
+                                      kpi,
+                                      kpi.personalAnnualTarget,
+                                      kpi.distributionStrategy || 'equal',
+                                      activeFy,
+                                      priorFy
+                                    )
+                                  )
+                                }
+                                className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                <span>
+                                  {lang === 'am' ? '12 ወር አመሳስል' : 'Sync 12M'}
+                                </span>
+                              </button>
+                            );
+                          }
+                          if (diag.isFullySynced) {
+                            return (
+                              <div className="mt-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+                                {lang === 'am' ? '12 ወር የተመሳሰለ' : '12M Synced'}
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                              {lang === 'am' ? 'እቅድ አልተሰጠም' : 'Unassigned'}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-4 text-right font-mono tabular-nums text-blue-700 dark:text-blue-400 font-semibold whitespace-nowrap">
                         {kpi.direction === 'lower_better' || kpi.aggregation === 'average'

@@ -169,6 +169,8 @@ export const UI_TEXT = {
     reports: { am: 'ሪፖርት', en: 'Reports' },
   },
   logActualCta: { am: '+ ክንውን መዝግብ', en: '+ Log Actual' },
+  pipelineBtn: { am: 'ፓይፕላይን እና ተግባራት', en: 'Pipeline & Tasks' },
+  checkInBtn: { am: 'ሳምንታዊ ክትትል', en: 'Weekly Check-In' },
   settingsBtn: { am: 'መገለጫ እና ዳታ', en: 'Profile & PIN' },
   fiscalYearsBtn: { am: 'የበጀት ዓመታት', en: 'Fiscal Years' },
   installApp: { am: 'አፑን ጫን (Offline)', en: 'Install App' },

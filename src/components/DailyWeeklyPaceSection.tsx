@@ -2,6 +2,7 @@ import React from 'react';
 import {
   AlertTriangle,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   Plus,
   TrendingUp,
@@ -13,6 +14,7 @@ import {
   KpiItem,
 } from '../types/kpi';
 import { computeDailyWeeklyPace, DailyPaceStatus } from '../utils/analytics';
+import { formatEthiopianDate } from '../utils/ethiopianCalendar';
 import { formatKpiValue, getCategoryLabel, getFiscalMonths } from '../utils/i18n';
 
 interface DailyWeeklyPaceSectionProps {
@@ -23,7 +25,9 @@ interface DailyWeeklyPaceSectionProps {
   targetMonthIndex: number;
   workingDaysPerMonth: number;
   elapsedWorkingDays: number;
+  holidayDeductedCount?: number;
   onUpdateWorkingDays?: (workingDaysPerMonth: number, elapsedWorkingDays: number) => void;
+  onOpenWorkingCalendar?: (monthIndex: number) => void;
   onQuickLogForKpi?: (kpiId: string, monthIndex: number) => void;
   compactForReport?: boolean;
 }
@@ -36,13 +40,16 @@ export const DailyWeeklyPaceSection: React.FC<DailyWeeklyPaceSectionProps> = ({
   targetMonthIndex,
   workingDaysPerMonth,
   elapsedWorkingDays,
+  holidayDeductedCount = 0,
   onUpdateWorkingDays,
+  onOpenWorkingCalendar,
   onQuickLogForKpi,
   compactForReport = false,
 }) => {
   const lang = profile.language;
   const fiscalMonths = getFiscalMonths(profile.calendarType);
   const monthMeta = fiscalMonths[targetMonthIndex] || fiscalMonths[0];
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   const pace = computeDailyWeeklyPace(
     kpis,
@@ -113,9 +120,19 @@ export const DailyWeeklyPaceSection: React.FC<DailyWeeklyPaceSectionProps> = ({
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             <span>
               {lang === 'am'
-                ? `ቀሪ የስራ ቀናት፦ ${pace.remainingWorkingDays} ቀናት`
-                : `${pace.remainingWorkingDays} working days left`}
+                ? `ቀሪ የስራ ቀናት፦ ${pace.remainingWorkingDays}/${pace.workingDaysPerMonth} ቀናት`
+                : `${pace.remainingWorkingDays}/${pace.workingDaysPerMonth} net floor days left`}
             </span>
+            {holidayDeductedCount > 0 && (
+              <>
+                <span className="mx-1.5" aria-hidden="true">·</span>
+                <span className="font-medium text-amber-700 dark:text-amber-400">
+                  {lang === 'am'
+                    ? `${holidayDeductedCount} በዓል/ፈቃድ ተቀንሷል`
+                    : `${holidayDeductedCount} holiday/leave deducted`}
+                </span>
+              </>
+            )}
             <span className="mx-1.5" aria-hidden="true">·</span>
             <span>
               {lang === 'am'
@@ -123,51 +140,62 @@ export const DailyWeeklyPaceSection: React.FC<DailyWeeklyPaceSectionProps> = ({
                 : `Month time elapsed: ${pace.expectedTimePct.toFixed(0)}%`}
             </span>
             <span className="mx-1.5" aria-hidden="true">·</span>
-            <span>
-              {lang === 'am'
-                ? `${pace.metOrAheadCount} በጥሩ ፍጥነት / ${pace.behindPaceCount} ማፋጠን የሚሹ`
-                : `${pace.metOrAheadCount} on pace / ${pace.behindPaceCount} need acceleration`}
-            </span>
+            <span>{formatEthiopianDate(todayIso, lang)}</span>
           </p>
         </div>
 
-        {onUpdateWorkingDays && (
-          <div className="no-print flex flex-wrap items-center gap-3 text-xs">
-            <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-              <span>{lang === 'am' ? 'የወሩ የስራ ቀናት፦' : 'Working Days/Mo:'}</span>
-              <input
-                type="number"
-                min={1}
-                max={31}
-                value={pace.workingDaysPerMonth}
-                onChange={(e) => {
-                  const nextTotal = Math.max(1, Math.min(31, Number(e.target.value) || 26));
-                  onUpdateWorkingDays(
-                    nextTotal,
-                    Math.min(nextTotal, pace.elapsedWorkingDays)
-                  );
-                }}
-                className="w-14 min-h-[34px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-center font-mono font-semibold tabular-nums text-slate-900 dark:text-white focus:border-blue-600 focus:outline-hidden"
-              />
-            </label>
+        {(onUpdateWorkingDays || onOpenWorkingCalendar) && (
+          <div className="no-print flex flex-wrap items-center gap-2.5 text-xs">
+            {onUpdateWorkingDays && (
+              <>
+                <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                  <span>{lang === 'am' ? 'የተጣራ ቀናት፦' : 'Net Days:'}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={pace.workingDaysPerMonth}
+                    onChange={(e) => {
+                      const nextTotal = Math.max(1, Math.min(31, Number(e.target.value) || 26));
+                      onUpdateWorkingDays(
+                        nextTotal,
+                        Math.min(nextTotal, pace.elapsedWorkingDays)
+                      );
+                    }}
+                    className="w-14 min-h-[34px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-center font-mono font-semibold tabular-nums text-slate-900 dark:text-white focus:border-blue-600 focus:outline-hidden"
+                  />
+                </label>
 
-            <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-              <span>{lang === 'am' ? 'ያለፉ የስራ ቀናት፦' : 'Days Elapsed:'}</span>
-              <input
-                type="number"
-                min={0}
-                max={pace.workingDaysPerMonth}
-                value={pace.elapsedWorkingDays}
-                onChange={(e) => {
-                  const nextElapsed = Math.max(
-                    0,
-                    Math.min(pace.workingDaysPerMonth, Number(e.target.value) || 0)
-                  );
-                  onUpdateWorkingDays(pace.workingDaysPerMonth, nextElapsed);
-                }}
-                className="w-14 min-h-[34px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-center font-mono font-semibold tabular-nums text-slate-900 dark:text-white focus:border-blue-600 focus:outline-hidden"
-              />
-            </label>
+                <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                  <span>{lang === 'am' ? 'ያለፉ፦' : 'Elapsed:'}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={pace.workingDaysPerMonth}
+                    value={pace.elapsedWorkingDays}
+                    onChange={(e) => {
+                      const nextElapsed = Math.max(
+                        0,
+                        Math.min(pace.workingDaysPerMonth, Number(e.target.value) || 0)
+                      );
+                      onUpdateWorkingDays(pace.workingDaysPerMonth, nextElapsed);
+                    }}
+                    className="w-14 min-h-[34px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-center font-mono font-semibold tabular-nums text-slate-900 dark:text-white focus:border-blue-600 focus:outline-hidden"
+                  />
+                </label>
+              </>
+            )}
+
+            {onOpenWorkingCalendar && (
+              <button
+                type="button"
+                onClick={() => onOpenWorkingCalendar(targetMonthIndex)}
+                className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-400 hover:border-blue-600 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                <span>{lang === 'am' ? 'በዓላት እና ፈቃድ (ዓ.ም)' : 'Holidays & Leave (ዓ.ም)'}</span>
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -20,6 +20,7 @@ import {
   PortfolioSummary,
   YoYPortfolioComparison,
 } from '../utils/analytics';
+import { getEffectiveMonthWorkingConfig } from '../utils/ethiopianCalendar';
 import { formatKpiValue, getFiscalMonths, UI_TEXT } from '../utils/i18n';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
@@ -82,6 +83,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [simSharePct, setSimSharePct] = useState<number>(10);
   const [simRhythm, setSimRhythm] = useState<CascadeRhythm>('ramp');
 
+  const effectiveWorkingCfg = useMemo(
+    () => getEffectiveMonthWorkingConfig(activeFy, activeFy.activeMonthIndex),
+    [activeFy]
+  );
+
   const simData = useMemo(() => {
     const branchTotal = simBranchMillions * 1_000_000;
     const personalAnnual = (branchTotal * simSharePct) / 100;
@@ -95,7 +101,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       monthly[6] + monthly[7] + monthly[8],
       monthly[9] + monthly[10] + monthly[11],
     ];
-    const dailyTarget = monthly[profile.activeMonthIndex] / (activeFy.workingDaysPerMonth || 26);
+    const dailyTarget =
+      monthly[profile.activeMonthIndex] / (effectiveWorkingCfg.netWorkingDays || 26);
 
     return {
       branchTotal,
@@ -105,7 +112,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       quarters,
       dailyTarget,
     };
-  }, [simBranchMillions, simSharePct, simRhythm, profile.activeMonthIndex, activeFy.workingDaysPerMonth]);
+  }, [
+    simBranchMillions,
+    simSharePct,
+    simRhythm,
+    profile.activeMonthIndex,
+    effectiveWorkingCfg.netWorkingDays,
+  ]);
 
   const pacePreview = useMemo(
     () =>
@@ -113,10 +126,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         activeFy.kpis,
         activeFy.actualLogs,
         activeFy.activeMonthIndex,
-        activeFy.workingDaysPerMonth,
-        activeFy.elapsedWorkingDaysInMonth
+        effectiveWorkingCfg.netWorkingDays,
+        effectiveWorkingCfg.elapsedWorkingDays
       ),
-    [activeFy]
+    [activeFy, effectiveWorkingCfg]
   );
 
   const scrollToSection = (id: string) => {
@@ -321,10 +334,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span aria-hidden="true">·</span>
                   <button
                     type="button"
+                    onClick={() => onNavigate('pipeline')}
+                    className="font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    {lang === 'am' ? '4. ፓይፕላይን →' : '4. Pipeline & Tasks →'}
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
                     onClick={() => onNavigate('reports')}
                     className="font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer"
                   >
-                    {lang === 'am' ? '4. ሪፖርት እና YoY →' : '4. Appraisal Report →'}
+                    {lang === 'am' ? '5. ሪፖርት እና YoY →' : '5. Appraisal Report →'}
                   </button>
                 </div>
               </div>
@@ -1158,6 +1179,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               {UI_TEXT.nav.actuals[lang]}
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('pipeline')}
+              className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              {UI_TEXT.pipelineBtn[lang]}
             </button>
             <button
               type="button"

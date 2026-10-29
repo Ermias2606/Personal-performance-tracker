@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Download, Smartphone, WifiOff, X } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Smartphone, WifiOff, X } from 'lucide-react';
 import { useOnlineStatus, usePWAInstall } from '../hooks/usePWAInstall';
 import { Language } from '../types/kpi';
 
@@ -154,17 +154,46 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
 export const OfflineIndicator: React.FC<{ lang: Language }> = ({ lang }) => {
   const isOnline = useOnlineStatus();
-
-  if (isOnline) return null;
+  const { needRefresh, applySwUpdate, dismissUpdate } = usePWAInstall();
 
   return (
-    <div className="no-print fixed bottom-20 md:bottom-5 left-4 z-50 flex items-center gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/95 px-3.5 py-2 text-xs font-semibold text-amber-900 dark:text-amber-200 shadow-md">
-      <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
-      <span>
-        {lang === 'am'
-          ? 'ኦፍላይን ሁነታ — ሁሉም መረጃ በስልክዎ/ኮምፒውተርዎ ላይ በትክክል ይቀመጣል።'
-          : 'Offline Mode — All changes are saved locally on your device.'}
-      </span>
-    </div>
+    <>
+      {!isOnline && (
+        <div className="no-print fixed bottom-20 md:bottom-5 left-4 z-50 flex items-center gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/95 px-3.5 py-2 text-xs font-semibold text-amber-900 dark:text-amber-200 shadow-md">
+          <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
+          <span>
+            {lang === 'am'
+              ? 'ኦፍላይን ሁነታ — ሁሉም መረጃ በስልክዎ/ኮምፒውተርዎ ላይ በትክክል ይቀመጣል።'
+              : 'Offline Mode — All changes are saved locally on your device.'}
+          </span>
+        </div>
+      )}
+
+      {needRefresh && (
+        <div className="no-print fixed bottom-20 md:bottom-5 right-4 z-50 flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-xs shadow-lg">
+          <span className="font-semibold text-slate-800 dark:text-slate-100">
+            {lang === 'am'
+              ? 'አዲስ የአፕ ማሻሻያ ዝግጁ ነው'
+              : 'New offline app version ready'}
+          </span>
+          <button
+            type="button"
+            onClick={() => void applySwUpdate()}
+            className="inline-flex min-h-[32px] items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1 font-semibold text-white hover:bg-blue-700 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="h-3 w-3" />
+            <span>{lang === 'am' ? 'አድስ' : 'Update'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={dismissUpdate}
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            aria-label="Dismiss update notification"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </>
   );
 };

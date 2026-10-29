@@ -31,6 +31,7 @@ export type AppPageRoute =
   | 'branch'
   | 'personal'
   | 'actuals'
+  | 'pipeline'
   | 'reports'
   | 'install';
 
@@ -39,6 +40,13 @@ export type PeriodScope =
   | { type: 'annual' }
   | { type: 'quarter'; quarter: QuarterKey }
   | { type: 'month'; monthIndex: number };
+
+export type PlanDistributionStrategy =
+  | 'equal'
+  | 'working_days'
+  | 'ramp_up'
+  | 'front_loaded'
+  | 'prior_year';
 
 export interface KpiItem {
   id: string;
@@ -54,6 +62,8 @@ export interface KpiItem {
   personalAnnualTarget: number;
   quarterlyTargets: Record<QuarterKey, number>;
   monthlyTargets: number[]; // Length 12 (indices 0..11 in fiscal year)
+  pinnedMonths?: number[]; // Month indices (0..11) locked from automatic redistribution
+  distributionStrategy?: PlanDistributionStrategy;
   notes?: string;
 }
 
@@ -68,13 +78,74 @@ export interface ActualLogEntry {
   createdAt: number;
 }
 
+export type ProspectStage = 'lead' | 'follow_up' | 'committed' | 'won' | 'lost';
+
+export interface ProspectItem {
+  id: string;
+  kpiId: string;
+  monthIndex: number; // Target fiscal month 0..11
+  clientName: string;
+  contactNote: string;
+  expectedValue: number;
+  probabilityPct: number; // 25..100
+  stage: ProspectStage;
+  targetDate: string; // YYYY-MM-DD
+  convertedLogId?: string;
+  createdAt: number;
+}
+
+export type TaskPriority = 'high' | 'medium' | 'normal';
+
+export interface ActionTaskItem {
+  id: string;
+  kpiId?: string;
+  title: string;
+  dueDate: string; // YYYY-MM-DD
+  priority: TaskPriority;
+  completed: boolean;
+  completedAt?: number;
+  createdAt: number;
+}
+
+export interface AppraisalNarrative {
+  keyAchievements: string;
+  varianceExplanations: string;
+  nextPeriodCommitments: string;
+  supervisorComments: string;
+  updatedAt?: string;
+}
+
+export interface HolidayEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  nameAm: string;
+  nameEn: string;
+  type: 'public_holiday' | 'personal_leave';
+}
+
+export interface MonthWorkingConfig {
+  baseWorkingDays: number;
+  elapsedWorkingDays: number;
+  holidays: HolidayEntry[];
+}
+
+export interface WeeklyCheckInSettings {
+  reminderEnabled: boolean;
+  reminderDay: 'friday' | 'saturday' | 'monday';
+  lastCheckInAt?: string;
+}
+
 export interface FiscalYearWorkspace {
   id: string;
   fiscalYearLabel: string;
   calendarType: FiscalCalendarType;
   activeMonthIndex: number; // 0..11 current month in fiscal year for YTD calculation
-  workingDaysPerMonth: number; // e.g., 26 (Mon-Sat branch) or 22 (Mon-Fri)
-  elapsedWorkingDaysInMonth: number; // e.g., 21 working days elapsed in active month
+  workingDaysPerMonth: number; // Default base working days per month (e.g., 26 Mon-Sat)
+  elapsedWorkingDaysInMonth: number; // Default elapsed working days in active month
+  monthlyWorkingConfigs?: Record<number, MonthWorkingConfig>;
+  prospects?: ProspectItem[];
+  actionTasks?: ActionTaskItem[];
+  appraisalNarrative?: AppraisalNarrative;
   isArchived?: boolean;
   kpis: KpiItem[];
   actualLogs: ActualLogEntry[];
@@ -103,6 +174,7 @@ export interface AppDatabasePayload {
   profile: EmployeeProfile;
   categories: KpiCategoryDef[];
   security: SecuritySettings;
+  checkInSettings?: WeeklyCheckInSettings;
   activeFiscalYearId: string;
   fiscalYears: FiscalYearWorkspace[];
   // Legacy v1 compatibility fields kept synced with active fiscal year for seamless JSON exports
